@@ -1,0 +1,48 @@
+# ---- Secrets / environment ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# ---- Ingested data (raw + derived; never committed) ----
+data/raw/
+data/parquet/
+data/quarantine/
+data/manifests/
+*.zip
+*.parquet
+*.duckdb
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env/
+
+# ---- Tooling caches ----
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+
+# ---- Terraform (no state in VCS) ----
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "federal-spending-data-warehouse"
+version = "0.1.0"
+description = "Enterprise federal procurement data engineering platform (USAspending.gov ingestion)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "QuantumQuant" }]
+keywords = ["usaspending", "data-engineering", "etl", "procurement", "federal-spending"]
+classifiers = [
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Intended Audience :: Developers",
+  "Topic :: Database",
+]
+
+dependencies = [
+  "requests>=2.32,<3",
+  "pyarrow>=17,<19",
+  "duckdb>=1.1,<2",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=5.0,<7",
+  "responses>=0.25,<0.26",
+  "ruff>=0.6,<0.9",
+]
+
+[project.scripts]
+fsdw = "ingestion.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ingestion"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Live API tests are opt-in: deselected unless `-m live` is explicitly requested.
+addopts = "-ra -m 'not live'"
+markers = [
+  "live: tests that hit the real USAspending.gov API (opt-in; requires network).",
+  "integration: end-to-end tests over a small controlled local dataset.",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["ingestion", "tests", "analytics"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["N818"]  # allow exception names without "Error" suffix
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.coverage.run]
+source = ["ingestion"]
+omit = ["ingestion/cli.py"]

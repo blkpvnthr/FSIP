@@ -1,0 +1,9 @@
+contract_transaction_unique_key,contract_award_unique_key,award_id_piid,modification_number,federal_action_obligation,total_dollars_obligated,current_total_value_of_award,action_date,last_modified_date,period_of_performance_start_date,solicitation_date,recipient_uei,recipient_name,awarding_agency_code,awarding_sub_agency_code,funding_agency_code,description
+TX1,AW1,PIID1,P00001,1000.50,1000.50,5000.00,2025-10-01,2025-10-31 12:29:06+00,2025-09-01,2025-07-08,UEI0000000001,ACME AEROSPACE,080,8000,080,"valid positive obligation"
+TX2,AW1,PIID1,P00002,-250.25,750.25,5000.00,2025-10-05,2025-10-31 19:17:42+00,2025-09-01,2025-07-08,UEI0000000001,ACME AEROSPACE,080,8000,080,"valid de-obligation (negative)"
+TX3,AW2,PIID2,P00000,0.00,0.00,100.00,2025-10-10,2025-10-31 10:35:49+00,2025-10-01,2025-08-01,UEI0000000002,BETA LABS,080,8000,080,"valid zero obligation"
+TX1,AW1,PIID1,P00001,1000.50,1000.50,5000.00,2025-10-01,2025-10-31 12:29:06+00,2025-09-01,2025-07-08,UEI0000000001,ACME AEROSPACE,080,8000,080,"duplicate transaction key -> quarantine"
+,AW3,PIID3,P00003,42.00,42.00,42.00,2025-10-12,2025-10-31 08:00:00+00,2025-10-01,2025-08-01,UEI0000000003,GAMMA CORP,080,8000,080,"missing transaction key -> quarantine"
+TX5,AW4,PIID4,P00004,,,,2025-10-15,2025-10-31 09:00:00+00,2025-10-01,2025-08-01,UEI0000000004,DELTA INC,080,8000,080,"blank obligation -> quarantine"
+TX6,AW5,PIID5,P00005,N/A,N/A,N/A,2025-10-18,2025-10-31 11:00:00+00,2025-10-01,2025-08-01,UEI0000000005,EPSILON LLC,080,8000,080,"malformed obligation -> quarantine"
+TX7,AW6,PIID6,P00006,500.00,500.00,500.00,2025-10-20,2025-10-31 13:00:00+00,2025-10-01,not-a-date,UEI0000000006,ZETA SYSTEMS,080,8000,080,"valid row with unparseable ancillary date -> warning only"
