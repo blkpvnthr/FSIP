@@ -199,3 +199,18 @@ with a `;`-separated `_quarantine_reasons` field. Milestone 2 reason codes:
   `federal_action_obligation`) are **soft warnings**: the row is kept, the single
   bad field is nulled, and a warning is counted. These fields are **never coerced
   to zero**.
+
+---
+
+## Milestone 3 — cloud (status)
+
+The data contract and types are **unchanged** in the cloud lake: money stays
+`decimal128(23,2)` (no floats; negatives/de-obligations preserved), and cloud
+reconciliation is decimal-exact against the same values. Milestone 3 changes only
+*where* the typed Parquet lives (S3 object keys instead of a local Hive tree) and
+*how* it is published (catalog-pointer snapshots), not the column contract.
+
+**Status:** AWS is **prepared but not deployed** — no AWS resources exist. The
+7-dataset migration was reproduced against a **local-backend cloud-lake emulation**
+(not live S3) and reconciles to the exact baseline; **live S3 is pending approval**.
+See `docs/CLOUD_ARCHITECTURE.md` and `docs/CLOUD_MIGRATION.md`.

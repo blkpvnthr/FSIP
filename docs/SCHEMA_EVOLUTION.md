@@ -149,3 +149,19 @@ When a comparison returns something other than `compatible`:
   engineering step.
 - Cross-dataset integrity is **detect-and-report only** in Milestone 2.1;
   conflict resolution is deferred to the CDC milestone.
+
+---
+
+## Milestone 3 — cloud (status)
+
+Schema handling is unchanged in the cloud lake: schemas are still declared,
+fingerprinted, and classified exactly as above. In S3 these records live under the
+`control/` zone (schemas, manifests, snapshots) instead of `data/schemas/`, and
+they are **immutable** — IAM explicitly denies deletes on control manifests and
+snapshots, and the publication catalog pins the exact `part_keys` of each active
+snapshot. The compatibility classifier and the fail-loud-on-breaking-change policy
+carry over without change.
+
+**Status:** AWS is **prepared but not deployed** — no AWS resources exist; verified
+against a **local-backend cloud-lake emulation**; **live S3 pending approval**. See
+`docs/CLOUD_ARCHITECTURE.md` and `docs/CLOUD_SECURITY.md`.

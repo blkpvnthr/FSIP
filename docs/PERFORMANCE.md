@@ -146,3 +146,26 @@ claim a local-disk speedup that did not occur.
 - GSA required raising `FSDW_MAX_EXTRACT_BYTES` to 8 GiB (its 3.2 GB uncompressed
   exceeds the 2 GiB default safety cap — the cap correctly rejected it first).
 - DoD was **not** benchmarked (not ingested; large, needs approval).
+
+---
+
+## Cloud performance (local-backend emulation; live S3 pending)
+
+Milestone 3 measurements to date come from the **local-backend cloud-lake
+emulation**, which implements the same atomic/conditional-write contract as the S3
+backend but runs on local SSD — so timings here are **not** representative of live
+S3 latency, and **no live S3 benchmark exists yet**.
+
+- The full migration (`fsdw cloud sync --all`) published all **7 datasets**
+  (catalog v1 → v7); whole-lake `audit-integrity` readback reproduced the exact
+  baseline (**1,413,894** tx, **0** duplicates, **$162,127,569,604.93**), and
+  per-dataset cloud reconcile passed (incl. GSA ~1.3M).
+- Partition pruning (measured locally: ~90–92% of rows skipped per single-month
+  filter) is expected to convert to a **wall-time** win on object storage, where
+  per-object latency dominates and skipping 11 of 12 months avoids gigabytes of
+  network I/O — the opposite of the local-SSD parity reported above.
+- `fsdw cloud benchmark` writes cloud read/publish timings to `reports/benchmarks`.
+
+**Status:** AWS is **prepared but not deployed** — no AWS resources exist. Live S3
+performance numbers are **pending approval (Phase B/C)**. See
+`docs/CLOUD_ARCHITECTURE.md` and `docs/CLOUD_COSTS.md`.

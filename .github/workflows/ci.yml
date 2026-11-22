@@ -38,5 +38,26 @@ jobs:
       - name: Run tests (offline; live API tests excluded)
         # The `live` marker is deselected by pyproject addopts, so CI never
         # depends on external network access. Tests use synthesized fixtures and
-        # never read ignored local datasets.
+        # never read ignored local datasets. Offline S3 tests use moto (no AWS).
         run: pytest -v --cov=ingestion --cov-report=term-missing --cov-fail-under=90
+
+  terraform:
+    # Validates the IaC without provisioning anything (no credentials, no apply).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive
+        working-directory: infrastructure/terraform
+
+      - name: Terraform validate (dev environment; no apply)
+        working-directory: infrastructure/terraform/environments/dev
+        run: |
+          terraform init -backend=false
+          terraform validate

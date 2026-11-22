@@ -1,0 +1,23 @@
+# Example remote-state backend for the FSIP dev environment.
+#
+# By default (no backend.tf present) Terraform uses LOCAL state stored in
+# terraform.tfstate in this directory. Local state is fine for solo/offline work.
+#
+# To use a shared S3 remote backend instead:
+#   1. Copy this file to backend.tf   (cp backend.tf.example backend.tf)
+#   2. Replace every placeholder below with real values.
+#   3. Run `terraform init` and approve the state migration when prompted.
+#
+# backend.tf (the real one) is git-ignored. Do NOT commit it, and do NOT create
+# the state bucket or lock table from this configuration — provision them
+# out-of-band so your state store is never managed by the stack it stores.
+#
+# terraform {
+#   backend "s3" {
+#     bucket         = "REPLACE-ME-terraform-state"   # existing state bucket
+#     key            = "fsip/dev/terraform.tfstate"   # state object key
+#     region         = "us-east-1"                     # state bucket region
+#     encrypt        = true                            # encrypt state at rest
+#     dynamodb_table = "REPLACE-ME-terraform-locks"    # existing lock table
+#   }
+# }

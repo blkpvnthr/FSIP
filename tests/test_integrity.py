@@ -35,17 +35,34 @@ def test_cross_dataset_overlap_blocks_publication(nasa_fy2026_archive: Path, set
     assert not (settings.partitioned_parquet_dir / "awarding_agency=DOE").exists()
 
 
-def test_force_overrides_then_audit_detects_duplicates(
+def test_force_does_not_bypass_cross_dataset_uniqueness(
     nasa_fy2026_archive: Path, settings: Settings
 ):
+    # --force may replace a dataset's OWN version, but must NEVER publish
+    # transaction keys that collide with a different published dataset.
     ingest_archive(nasa_fy2026_archive, "NASA", 2026, settings)
     forced = ingest_archive(nasa_fy2026_archive, "DOE", 2026, settings, force=True)
-    assert forced.status == "published"  # force bypasses the integrity gate
+    assert forced.status == "integrity_conflict"  # force does NOT bypass uniqueness
+    assert not (settings.partitioned_parquet_dir / "awarding_agency=DOE").exists()
+    # The lake remains duplicate-free.
+    assert audit_integrity(settings).passed is True
+
+
+def test_audit_detects_injected_duplicates(nasa_fy2026_archive: Path, settings: Settings):
+    # Simulate a pre-existing integrity breach by copying NASA's published parquet
+    # into a DOE partition (bypassing the pipeline), then confirm the auditor flags it.
+    import shutil
+
+    ingest_archive(nasa_fy2026_archive, "NASA", 2026, settings)
+    nasa = settings.partitioned_parquet_dir / "awarding_agency=NASA" / "fiscal_year=2026"
+    doe = settings.partitioned_parquet_dir / "awarding_agency=DOE" / "fiscal_year=2026"
+    shutil.copytree(nasa, doe)
+
     report = audit_integrity(settings)
     assert report.passed is False
     assert report.cross_dataset_key_count == 4
-    assert report.conflicting_key_count == 0  # identical values
-    assert report.identical_duplicate_count == 4
+    assert report.identical_duplicate_count == 4  # identical values
+    assert report.conflicting_key_count == 0
 
 
 def test_conflicting_version_classified(

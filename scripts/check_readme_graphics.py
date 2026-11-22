@@ -43,6 +43,7 @@ SIGNATURES: list[tuple[str, str]] = [
     ("erDiagram", "dimensional_warehouse_star_schema"),
     ("Check source freshness", "apache_airflow_orchestration"),
     ("Partitioned Parquet Data Lake", "milestone_2_historical_architecture"),
+    ("Storage Abstraction Layer", "milestone_3_s3_cloud_architecture"),
 ]
 
 _FENCE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
