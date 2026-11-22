@@ -8,10 +8,22 @@ credentials.json
 secrets/
 
 # ---- Ingested data (raw + derived; never committed) ----
+# All data-lake contents are git-ignored (raw, staged, published, and all
+# generated artifacts). Nothing under data/ is ever committed.
+data/
 data/raw/
 data/parquet/
 data/quarantine/
 data/manifests/
+data/staging/
+data/schemas/
+data/profiles/
+data/benchmarks/
+data/checkpoints/
+
+# ---- Generated analytics reports (keep the directory, not its output) ----
+analytics/reports/*
+!analytics/reports/.gitkeep
 *.zip
 *.parquet
 *.duckdb

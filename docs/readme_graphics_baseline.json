@@ -1,0 +1,7 @@
+{
+  "apache_airflow_orchestration": "9929804fc07b4ab91dba76504e93f64a7dd97b5349a1aae06ebe2d1e3419463e",
+  "dimensional_warehouse_star_schema": "7860c94e2bb4b354c57ff95c80e95cdbdc6a118aa31b972f3ff9111c2be7b4d1",
+  "enterprise_system_architecture": "14920b5265aee6ddf7bb2c08851cccc80b6c6b4ac3bce38b82eda54c1c0d3027",
+  "milestone_1_ingestion_workflow": "0758ea61ef4648ae6050643a5e7c4cd48dfa0a45bcb0cbbedaf421c399aed396",
+  "milestone_2_historical_architecture": "611c42942caa9acea99cfad5fcd4be515363eced4e2dc9a3c73e5548e814aae9"
+}

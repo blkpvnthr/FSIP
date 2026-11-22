@@ -24,20 +24,34 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 
-# --------------------------------------------------------------------------- #
-# Agencies
-# --------------------------------------------------------------------------- #
+# The agency registry is the single source of truth (see ``ingestion.agencies``).
+# ``AGENCIES`` is re-exported here in its original Milestone-1 shape so existing
+# code (``ExtractRequest.agency_meta``, the CLI) keeps working unchanged.
+from .agencies import AGENCIES
 
-# toptier_code is the stable identifier USAspending uses for a top-tier agency.
-AGENCIES: dict[str, dict[str, str]] = {
-    "NASA": {
-        "name": "National Aeronautics and Space Administration",
-        "toptier_code": "080",
-        "abbreviation": "NASA",
-    },
-}
+# --------------------------------------------------------------------------- #
+# Federal fiscal-calendar helpers
+# --------------------------------------------------------------------------- #
+# The U.S. federal fiscal year runs October 1 -> September 30 and is named for the
+# calendar year in which it *ends*. Fiscal month 01 = October, ..., 12 = September.
+
+
+def federal_fiscal_year(d: date) -> int:
+    """Return the federal fiscal year for a date (FY starts October 1)."""
+    return d.year + 1 if d.month >= 10 else d.year
+
+
+def federal_fiscal_month(d: date) -> int:
+    """Return the federal fiscal month (1=Oct .. 12=Sep) for a date."""
+    return d.month - 9 if d.month >= 10 else d.month + 3
+
+
+def federal_fiscal_quarter(d: date) -> int:
+    """Return the federal fiscal quarter (1..4) for a date."""
+    return (federal_fiscal_month(d) - 1) // 3 + 1
 
 
 # --------------------------------------------------------------------------- #

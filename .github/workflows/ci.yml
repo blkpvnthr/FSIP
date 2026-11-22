@@ -31,7 +31,12 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
 
+      - name: README graphics preservation check
+        # Fails if any protected README diagram changed byte-for-byte.
+        run: python scripts/check_readme_graphics.py
+
       - name: Run tests (offline; live API tests excluded)
         # The `live` marker is deselected by pyproject addopts, so CI never
-        # depends on external network access.
-        run: pytest -v --cov=ingestion --cov-report=term-missing
+        # depends on external network access. Tests use synthesized fixtures and
+        # never read ignored local datasets.
+        run: pytest -v --cov=ingestion --cov-report=term-missing --cov-fail-under=90
