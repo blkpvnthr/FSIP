@@ -162,9 +162,16 @@ def publish_local_dataset(
         return result
 
     # ---- Step 2: immutable, content-addressed raw archive ----
+    # Content-addressed: the key embeds the SHA-256, so an identical archive maps to
+    # the same key. Upload create-only; a concurrent writer landing identical bytes
+    # first is a benign race (same content), so a precondition failure is ignored.
+    # The post-upload SHA-256 re-read is the real integrity gate regardless.
     raw_key = keys.raw_key(agency, fiscal_year, archive["sha256"])
     if not backend.exists(raw_key):
-        backend.upload_file(Path(archive["stored_path"]), raw_key)
+        try:
+            backend.upload_file(Path(archive["stored_path"]), raw_key, precondition=ABSENT)
+        except PreconditionFailedError:
+            log.info("publication.raw_exists_race", extra={"context": {"raw_key": raw_key}})
     if backend.sha256(raw_key) != archive["sha256"]:
         raise CloudPublicationError(f"Raw archive checksum mismatch after upload: {raw_key}")
     result.raw_key = raw_key

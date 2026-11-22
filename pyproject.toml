@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "federal-spending-data-warehouse"
-version = "0.1.0"
+version = "0.3.0a1"
 description = "Enterprise federal procurement data engineering platform (USAspending.gov ingestion)."
 readme = "README.md"
 license = { text = "MIT" }

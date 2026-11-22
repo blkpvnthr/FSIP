@@ -13,4 +13,6 @@ Responsibilities are deliberately separated into single-purpose modules:
 - ``manifest``  — provenance record for every extraction.
 """
 
-__version__ = "0.1.0"
+# PEP 440 version. Phase A baseline == v0.3.0-alpha.1 (0.3.0a1). It is NOT bumped
+# to 0.3.0a2 until Phase B AWS infrastructure is actually deployed and verified.
+__version__ = "0.3.0a1"

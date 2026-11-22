@@ -18,7 +18,7 @@ including, `terraform apply`.**
 |-------------|-------|
 | An AWS account | A standard account; the design provisions a **single** S3 bucket plus least-privilege IAM and an optional budget. No account-wide or organisation changes. |
 | AWS CLI v2 | For credential configuration and ad-hoc verification. |
-| Terraform CLI | To `init` / `plan` the infrastructure. **Not installed in the build environment**, so `terraform validate`/`plan` were **not run here** — see §5. |
+| Terraform CLI | To `init` / `plan` / `apply` the infrastructure. Pinned to **1.9.5** (matches CI and `.terraform.lock.hcl`, AWS provider `5.100.0`). `terraform fmt -check`, `init -backend=false`, and `validate` have all been **run and pass** (Phase B); `plan`/`apply` still require AWS credentials — see §5. |
 | Python extra `aws` | `boto3` is an **optional** dependency: `pip install -e '.[aws]'`. The core pipeline and all offline tests run without it. |
 | Credentials | Supplied via the **standard AWS credential chain** (profile / SSO / temporary role credentials). **Never** embedded, committed, or printed. Prefer temporary credentials / IAM Identity Center. See `docs/CLOUD_SECURITY.md`. |
 
@@ -124,9 +124,12 @@ terraform plan      # preview the resources that WOULD be created
 milestone — it would create live, billable AWS resources and requires explicit
 approval (Phase B/C).
 
-> **Honesty note:** Terraform is **not installed** in the build environment, so
-> `terraform validate` and `terraform plan` were **not executed** here. The
-> configuration is authored and reviewed but unverified by the Terraform CLI.
+> **Validation status (Phase B):** Terraform **1.9.5** is installed and the
+> configuration is **CLI-verified**: `terraform fmt -check -recursive` is clean,
+> `terraform init -backend=false` succeeds, and `terraform validate` returns
+> *"Success! The configuration is valid."* `terraform plan`/`apply` were **not**
+> run — they require live AWS credentials (none are configured here) and explicit
+> deployment approval.
 
 ## 6. Teardown safety
 

@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import json
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
 from .config import Settings
@@ -60,6 +59,12 @@ def add_cloud_parser(subparsers) -> None:
         csub.add_parser("list-snapshots", help="List catalog snapshots and the active pointer.")
     )
     _common(csub.add_parser("estimate-cost", help="Offline AWS S3 cost estimate."))
+    _common(
+        csub.add_parser(
+            "gc",
+            help="Report orphaned curated snapshots (partial-failure debris). Report-only.",
+        )
+    )
 
     for name, helptext in [
         ("plan-sync", "Dry-run plan for publishing one dataset."),
@@ -88,13 +93,6 @@ def add_cloud_parser(subparsers) -> None:
         "--snapshot-id", help="Restore the catalog version that last held this snapshot."
     )
     _common(rb)
-
-
-def _settings(args: argparse.Namespace) -> Settings:
-    s = Settings.from_env()
-    if getattr(args, "data_dir", None) is not None:
-        s = replace(s, data_dir=args.data_dir)
-    return s
 
 
 def run_cloud(args: argparse.Namespace, settings: Settings) -> int:
@@ -343,8 +341,27 @@ def _cloud_estimate_cost(args, settings: Settings) -> int:
     return EXIT_OK
 
 
+def _cloud_gc(args, settings: Settings) -> int:
+    from .cloud.gc import gc_report
+    from .storage_backends import get_storage_backend
+
+    report = gc_report(get_storage_backend(settings))
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(
+            f"\nOrphaned curated snapshots: {report['orphan_count']} "
+            f"({report['reclaimable_bytes']} bytes reclaimable)"
+        )
+        for o in report["orphaned_snapshots"]:
+            print(f"  snapshot_id={o['snapshot_id']}  {o['object_count']} objects  {o['bytes']} B")
+        print(f"  note: {report['note']}")
+    return EXIT_OK
+
+
 _DISPATCH = {
     "check": _cloud_check,
+    "gc": _cloud_gc,
     "inventory": _cloud_inventory,
     "plan-sync": _cloud_plan_sync,
     "sync": _cloud_sync,

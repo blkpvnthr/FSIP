@@ -92,3 +92,14 @@ preview cost before enabling the S3 backend or running a live migration.
 - `docs/CLOUD_SECURITY.md` — SSE-KMS vs SSE-S3, logging.
 - `docs/CLOUD_RUNBOOK.md` — responding to a budget alert.
 - `docs/AWS_SETUP.md` — enabling the backend.
+
+## Cost drivers: egress and request volume (assumptions)
+
+Storage of the current 1.41M-record lake is tiny (~$0.07/mo). The variable cost is
+dominated by **data transfer OUT (egress)** and **GET request volume** from
+analytical reads, which are workload-dependent. The published estimates assume a
+modest analytical workload (a few thousand GETs/month and sub-GB monthly egress);
+heavy repeated full-lake scans from outside AWS would raise egress materially.
+Co-locating compute (DuckDB/Athena) in the same region as the bucket keeps egress
+near zero. These assumptions are estimates only; measure real request/egress
+volume once deployed.

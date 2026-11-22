@@ -54,8 +54,21 @@ No IAM **users** are created; no policy uses `Resource "*"`; no `AdministratorAc
 
 The explicit-deny on immutable prefixes means that **even the ingestion role
 cannot delete raw archives, curated snapshots, or control manifests/snapshots.**
-Immutability is enforced by IAM, not merely by convention — the publication code
-*copies* into create-only curated keys and never issues a delete against them.
+Delete-immutability is enforced by IAM, not merely by convention — the publication
+code *copies* into create-only curated keys and never issues a delete against them.
+
+> **Reader-isolation caveat (application-level, not IAM-enforced).** The read-only
+> policy grants `GetObject` on `arn:…:bucket/*` — i.e. **every** prefix. It does
+> **not** restrict readers to the *active, published* snapshots: at the IAM layer a
+> read-only principal could also read `staging/`, `quarantine/`, and curated
+> `snapshot_id`s that are not referenced by the current catalog. Isolation to
+> published data is provided by **application-level catalog resolution** (the
+> analytics path reads only the snapshots named by `control/current.json`), **not**
+> by IAM. Do not treat "readers see only published data" as an IAM guarantee. To
+> enforce it at the IAM layer, scope the read-only policy's `GetObject` to
+> `curated/*` (and `control/current.json` / `control/catalogs/*`) and deny
+> `staging/*` and `quarantine/*` — a recommended hardening before exposing the
+> read-only role to untrusted analysts.
 
 ## 5. Immutability guarantees
 
@@ -90,3 +103,17 @@ Immutability is enforced by IAM, not merely by convention — the publication co
 - `docs/CLOUD_ARCHITECTURE.md` — zones and the publication lifecycle.
 - `docs/CLOUD_COSTS.md` — budgets and KMS/logging cost deltas.
 - `docs/CLOUD_RUNBOOK.md` — deletion safeguards and recovery.
+
+## Phase B hardening notes (production WORM)
+
+Object immutability currently rests on application logic (content-addressed raw,
+snapshot-id-scoped curated, create-only writes, catalog-pointer compare-and-swap)
+plus S3 **versioning** as a backstop. The create-only guard on large multipart
+uploads and server-side copies is a check-then-act (the managed multipart/copy
+APIs do not expose an atomic conditional write); the authoritative transactional
+guarantee is the catalog-pointer CAS, and the post-write SHA-256 re-read is the
+integrity gate. For **production** WORM guarantees, additionally enable **S3 Object
+Lock** (compliance or governance mode) on the `raw/` and `curated/` prefixes so the
+storage layer itself prevents overwrite/delete regardless of IAM. Object Lock
+requires versioning (already enabled) and must be set at/after bucket creation;
+evaluate its retention cost before enabling.
