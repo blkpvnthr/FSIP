@@ -50,6 +50,17 @@ class Settings:
     max_extract_bytes: int = 2 * 1024 * 1024 * 1024
     max_extract_files: int = 256
 
+    # ---- Milestone 2: historical batch processing / partitioning ---- #
+    # Rows per streaming CSV batch (bounds peak memory for large archives).
+    batch_size: int = 50_000
+    # Parquet compression codec: "zstd" | "snappy" | "gzip" | "none".
+    parquet_compression: str = "zstd"
+    # Parquet row-group size (rows). Smaller -> finer pruning; larger -> less overhead.
+    parquet_row_group_size: int = 100_000
+    # Target rows per partition part-file before rolling to the next part (avoids
+    # excessive small files while capping any single file's size).
+    target_partition_file_rows: int = 1_000_000
+
     # Derived data-lake sub-directories (kept as properties so a single
     # ``data_dir`` override repositions the whole lake).
     @property
@@ -67,6 +78,43 @@ class Settings:
     @property
     def manifest_dir(self) -> Path:
         return self.data_dir / "manifests"
+
+    # ---- Milestone 2 data-lake areas ---- #
+    @property
+    def archive_root(self) -> Path:
+        """Root for manually-downloaded / API full-archive source ZIPs."""
+        return self.raw_dir / "usaspending" / "contracts" / "full"
+
+    @property
+    def delta_root(self) -> Path:
+        """Root for delta archives (CDC milestone; directory reserved now)."""
+        return self.raw_dir / "usaspending" / "contracts" / "delta"
+
+    @property
+    def staging_dir(self) -> Path:
+        """Candidate datasets are written here and validated before publication."""
+        return self.data_dir / "staging"
+
+    @property
+    def partitioned_parquet_dir(self) -> Path:
+        """Published, Hive-partitioned Parquet analytical data lake."""
+        return self.parquet_dir / "contracts"
+
+    @property
+    def schemas_dir(self) -> Path:
+        return self.data_dir / "schemas"
+
+    @property
+    def profiles_dir(self) -> Path:
+        return self.data_dir / "profiles"
+
+    @property
+    def benchmarks_dir(self) -> Path:
+        return self.data_dir / "benchmarks"
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        return self.data_dir / "checkpoints"
 
     @classmethod
     def from_env(cls, *, load_dotenv_file: bool = True) -> Settings:
@@ -96,9 +144,31 @@ class Settings:
             log_format=_env_str("FSDW_LOG_FORMAT", cls.log_format),
             max_extract_bytes=_env_int("FSDW_MAX_EXTRACT_BYTES", cls.max_extract_bytes),
             max_extract_files=_env_int("FSDW_MAX_EXTRACT_FILES", cls.max_extract_files),
+            batch_size=_env_int("FSDW_BATCH_SIZE", cls.batch_size),
+            parquet_compression=_env_str("FSDW_PARQUET_COMPRESSION", cls.parquet_compression),
+            parquet_row_group_size=_env_int(
+                "FSDW_PARQUET_ROW_GROUP_SIZE", cls.parquet_row_group_size
+            ),
+            target_partition_file_rows=_env_int(
+                "FSDW_TARGET_PARTITION_FILE_ROWS", cls.target_partition_file_rows
+            ),
         )
 
     def ensure_directories(self) -> None:
-        """Create the data-lake directory layout if it does not yet exist."""
+        """Create the base data-lake directory layout if it does not yet exist.
+
+        Milestone-1 paths are created eagerly for backward compatibility; the new
+        Milestone-2 areas are created lazily by the components that write to them.
+        """
         for path in (self.raw_dir, self.parquet_dir, self.quarantine_dir, self.manifest_dir):
+            path.mkdir(parents=True, exist_ok=True)
+
+    def ensure_m2_directories(self) -> None:
+        """Create the Milestone-2 write areas (staging, schemas, checkpoints).
+
+        The published parquet tree, profiles, and benchmarks directories are created
+        lazily by the components that publish/write into them, so an inspect-only
+        (dry-run) path and discovery of an empty lake leave no stray directories.
+        """
+        for path in (self.staging_dir, self.schemas_dir, self.checkpoints_dir):
             path.mkdir(parents=True, exist_ok=True)

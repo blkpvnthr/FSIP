@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import stat
 import time
 import zipfile
 from collections.abc import Callable
@@ -279,6 +280,8 @@ def safe_extract_zip(zip_path: Path, dest_dir: Path, settings: Settings) -> list
 
     * **Path traversal (zip-slip):** absolute paths or paths that escape
       ``dest_dir`` via ``..`` are rejected.
+    * **Symlink members:** rejected (a symlink could later be followed to write
+      outside ``dest_dir``).
     * **File-count cap:** at most ``settings.max_extract_files`` members.
     * **Uncompressed-size cap:** total declared uncompressed size must not exceed
       ``settings.max_extract_bytes``.
@@ -308,6 +311,10 @@ def safe_extract_zip(zip_path: Path, dest_dir: Path, settings: Settings) -> list
             name = info.filename
             if os.path.isabs(name) or ".." in Path(name).parts:
                 raise UnsafeArchiveError(f"Unsafe member path in archive: {name!r}")
+            # Reject symlink members (unix mode is stored in the high bits of
+            # external_attr); a symlink could be followed to escape dest_dir.
+            if stat.S_ISLNK(info.external_attr >> 16):
+                raise UnsafeArchiveError(f"Archive contains a symlink member: {name!r}")
             target = dest_dir / name
             if not _is_within_directory(dest_dir, target):
                 raise UnsafeArchiveError(f"Member escapes extraction dir: {name!r}")

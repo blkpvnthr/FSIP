@@ -216,6 +216,64 @@ def validate_file(csv_path: Path) -> ValidationResult:
     return result
 
 
+def validate_batch(
+    rows: list[dict[str, str]],
+    seen_keys: set[str],
+    warnings: list[str],
+) -> tuple[list[dict[str, str]], list[tuple[dict[str, str], list[str]]]]:
+    """Validate a batch of rows, partitioning them into (valid, quarantined).
+
+    ``seen_keys`` is shared across batches by the caller so duplicate transaction
+    keys are detected across batches and archive members, not just within one
+    batch. Reuses :func:`_validate_row` so batch and whole-file validation can
+    never diverge.
+    """
+    valid: list[dict[str, str]] = []
+    quarantined: list[tuple[dict[str, str], list[str]]] = []
+    for row in rows:
+        reasons = _validate_row(row, seen_keys, warnings)
+        if reasons:
+            quarantined.append((row, reasons))
+        else:
+            valid.append(row)
+    return valid, quarantined
+
+
+class QuarantineWriter:
+    """Streaming CSV writer for quarantined rows (append across batches).
+
+    Opens lazily on the first write so a clean run leaves no empty quarantine
+    file. Preserves original columns verbatim and appends ``_quarantine_reasons``.
+    """
+
+    def __init__(self, path: Path, header: list[str]) -> None:
+        self.path = path
+        self._fieldnames = [*header, "_quarantine_reasons"]
+        self._fh = None
+        self._writer: csv.DictWriter | None = None
+        self.count = 0
+
+    def write(self, quarantined: list[tuple[dict[str, str], list[str]]]) -> None:
+        if not quarantined:
+            return
+        if self._writer is None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._fh = open(self.path, "w", newline="", encoding="utf-8")  # noqa: SIM115
+            self._writer = csv.DictWriter(
+                self._fh, fieldnames=self._fieldnames, extrasaction="ignore"
+            )
+            self._writer.writeheader()
+        for row, reasons in quarantined:
+            out = dict(row)
+            out["_quarantine_reasons"] = ";".join(reasons)
+            self._writer.writerow(out)
+            self.count += 1
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+
+
 def write_quarantine(result: ValidationResult, quarantine_path: Path) -> int:
     """Write quarantined rows (verbatim + reasons) to CSV. Returns row count.
 

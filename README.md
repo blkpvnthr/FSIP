@@ -42,6 +42,141 @@ USAspending bulk_download API
 
 These results describe the reported local execution, not remote CI or cloud deployment verification.
 
+## Milestone 2 — Historical Ingestion Architecture
+
+Milestone 2 extends the API ingestion pipeline into a scalable historical platform:
+full-archive ingestion, bounded-memory batch processing, federal fiscal-year/month
+partitioning, a versioned schema registry, historical profiling, exact financial
+reconciliation as a publication gate, and performance benchmarking — all local, no
+paid cloud infrastructure.
+
+```mermaid
+flowchart TD
+    subgraph SOURCE["USAspending.gov"]
+        A["Bulk Download API"]
+        B["Historical ZIP Archives"]
+    end
+
+    A --> C
+    B --> C
+
+    C["<b>Python Ingestion Engine</b><br/>Safe extraction · SHA-256 · Manifests"]
+
+    C --> D["<b>Schema and Validation Engine</b><br/>Batch processing · Deduplication · Quarantine"]
+
+    D --> E["<b>Partitioned Parquet Data Lake</b><br/>Agency / Fiscal year / Fiscal month"]
+
+    E --> F["<b>DuckDB Analytical Engine</b><br/>Profiling · SQL analysis · Reconciliation"]
+
+    F --> G["<b>Quality and Performance Reports</b><br/>Throughput · Compression · Financial integrity"]
+
+    classDef source fill:#e2e8f0,stroke:#64748b,color:#0f172a,stroke-width:1px
+    classDef engine fill:#dbeafe,stroke:#2563eb,color:#172554,stroke-width:1px
+    classDef storage fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:1px
+    classDef analytics fill:#fef3c7,stroke:#ca8a04,color:#422006,stroke-width:1px
+    classDef reports fill:#ede9fe,stroke:#7c3aed,color:#2e1065,stroke-width:1px
+
+    class A,B source
+    class C,D engine
+    class E storage
+    class F analytics
+    class G reports
+
+    style SOURCE fill:#f8fafc,stroke:#64748b,color:#0f172a
+```
+
+Both historical ZIP archives and API-generated archives enter the same Python
+ingestion engine. Original source files remain immutable (checksummed, never
+modified). Validation failures are explicitly quarantined or rejected — never
+silently dropped. Candidate Parquet partitions are first written to a **staging**
+area; DuckDB performs profiling and decimal-exact financial reconciliation against
+the candidate dataset *before* publication. Only successfully reconciled datasets
+are atomically published into the analytical paths, and conflicting re-ingests of
+already-published data are detected and refused rather than overwritten. The reports
+provide evidence of data quality, financial integrity, and measured processing
+performance. This diagram shows the logical data flow; the detailed staging,
+reconciliation, quarantine, and atomic-publication lifecycle is documented in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/PARTITIONING.md`](docs/PARTITIONING.md).
+
+### Milestone 2 status — implementation complete; real-data acceptance passed for NASA
+
+Implemented and verified against **two real NASA Contracts Full File archives**
+(FY2025 and FY2026) pulled from the USAspending bulk-download API:
+
+| Capability | Status |
+|---|---|
+| Full-archive ZIP ingestion (multi-member, streaming, bounded memory) | Implemented |
+| Archive safety (integrity, path-traversal, symlink, file-type, size/count caps) | Implemented |
+| Extensible agency registry (NASA, DoD, DHS, DOE, GSA; authoritative codes) | Implemented |
+| Federal fiscal-year / fiscal-month Hive partitioning | Implemented |
+| Cross-batch / cross-member deduplication + quarantine | Implemented |
+| Versioned schema registry + historical comparison | Implemented |
+| Staging → reconcile (gate) → atomic publish, with conflict detection | Implemented |
+| Idempotent + resumable reprocessing | Implemented |
+| Historical profiling (JSON + Markdown) | Implemented |
+| DuckDB historical analytics (12 queries) | Implemented |
+| Performance benchmarking | Implemented |
+| Multi-agency / FY2022–2024 real-data backfill | **Pending** (code ready; archives not downloaded — see Limitations) |
+
+### Verified Milestone 2 results (real NASA data)
+
+| Metric | FY2025 | FY2026 |
+|---|---|---|
+| Source transactions | 21,284 | 17,603 |
+| Valid / quarantined / filtered | 21,284 / 0 / 0 | 17,603 / 0 / 0 |
+| Distinct awards / recipients | 9,502 / 3,021 | 8,309 / 2,701 |
+| Fiscal-month partitions | 12 | 12 |
+| **Net obligation** | **$15,787,739,509.64** | **$16,095,847,228.00** |
+| Positive / negative obligation | $16,337,439,738.27 / −$549,700,228.63 | $16,634,474,156.87 / −$538,626,928.87 |
+| De-obligations (negative count) | 1,716 | 1,281 |
+| Source→Parquet compression | 7.92× | 7.46× |
+| Reconciliation (source→target, per-partition) | PASSED | PASSED |
+| Schema fingerprint | `36933b68…f85a03` | `36933b68…f85a03` (identical) |
+
+Combined, the two published fiscal years hold **38,887 transactions** reconciling to
+a net **$31.88B** in obligations, with **zero duplicate transaction keys**. A
+cross-fiscal-year schema comparison (FY2025 → FY2026) classifies as **compatible /
+identical** (297 columns, unchanged). See [`docs/DATA_PROFILING.md`](docs/DATA_PROFILING.md)
+and [`docs/SCHEMA_EVOLUTION.md`](docs/SCHEMA_EVOLUTION.md).
+
+### Measured performance (NASA FY2026; macOS arm64, Python 3.12, DuckDB 1.5.6, PyArrow 18.1.0)
+
+| Metric | Value |
+|---|---|
+| End-to-end ingestion (min of repeats) | 1.12 s |
+| Throughput | ~15,800 transactions/sec |
+| Peak process memory (subprocess RSS) | ~452 MB |
+| Partition pruning (single fiscal month) | scans 1 of 12 files, 1,450 of 17,603 rows (91.8% skipped) |
+
+At this dataset size a single-month *wall-time* speedup from partitioning is modest
+or negative (per-file open overhead dominates), which is reported honestly in
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md); pruning still provably reduces data
+scanned and the benefit grows with scale.
+
+### Milestone 2 commands
+
+```bash
+# Ingest a full contract archive ZIP into the partitioned lake
+fsdw ingest-archive --path <archive.zip> --agency NASA --fiscal-year 2026
+
+# Backfill a fiscal-year range from local archives (add --download to fetch missing)
+fsdw backfill --agency NASA --start-fy 2025 --end-fy 2026
+
+# Inventory local datasets, profile, reconcile, benchmark, compare schemas
+fsdw list-datasets
+fsdw profile          --agency NASA --fiscal-year 2026
+fsdw reconcile        --agency NASA --fiscal-year 2026
+fsdw benchmark        --agency NASA --fiscal-year 2026
+fsdw compare-schemas  --agency NASA --from-fy 2025 --to-fy 2026
+
+# Run the DuckDB historical analytics suite (12 queries)
+python analytics/run_analytics.py
+```
+
+Common options where applicable: `--data-dir`, `--batch-size`, `--compression`,
+`--row-group-size`, `--dry-run`, `--force`, `--resume`. See
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md) for full operational guidance.
+
 ## Requirements and quickstart
 
 Python **3.12+**. The public API requires no credentials; this milestone provisions no paid cloud infrastructure. Run from the cloned repository root.
@@ -335,24 +470,37 @@ Checkpoints advance only after successful validation and publication. A daily ta
 Federal-Spending-Data/
 ├── .github/workflows/ci.yml
 ├── ingestion/
-│   ├── config.py
-│   ├── client.py
-│   ├── models.py
-│   ├── validate.py
-│   ├── storage.py
-│   ├── manifest.py
-│   ├── extract.py
-│   └── cli.py
-├── analytics/                 # DuckDB reconciliation
-├── tests/                     # Unit and integration tests
-├── airflow/dags/              # Stub
-├── warehouse/                 # Stub
-├── transformations/           # Stub
-├── infrastructure/terraform/  # Stub
-├── scripts/
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── DATA_DICTIONARY.md
+│   ├── config.py            # env-driven settings + data-lake layout
+│   ├── client.py            # HTTP transport, retries, safe download/extract
+│   ├── models.py            # data contract + fiscal-calendar helpers
+│   ├── agencies.py          # extensible agency registry (M2)
+│   ├── validate.py          # schema/type/dedup validation + quarantine
+│   ├── storage.py           # decimal-safe Parquet via PyArrow
+│   ├── partitioning.py      # fiscal Hive partitioning + streaming writer (M2)
+│   ├── archive.py           # full-archive ingestion pipeline (M2)
+│   ├── schema_registry.py   # versioned schema registry + comparison (M2)
+│   ├── reconciliation.py    # decimal-exact reconciliation / publish gate (M2)
+│   ├── profiling.py         # historical profiling → JSON + Markdown (M2)
+│   ├── benchmarking.py      # performance benchmarking (M2)
+│   ├── discovery.py         # local dataset discovery / inventory (M2)
+│   ├── checkpoints.py       # resumable-ingestion checkpoints (M2)
+│   ├── manifest.py          # provenance manifests
+│   ├── extract.py           # M1 API extraction orchestration
+│   └── cli.py               # fsdw CLI (M1 + M2 commands)
+├── analytics/
+│   ├── reconcile.py / reconcile.sql   # M1 reconciliation
+│   ├── sql/                 # 12 historical analytics queries (M2)
+│   ├── run_analytics.py     # runs the SQL suite → reports (M2)
+│   └── reports/             # generated analytics reports (git-ignored output)
+├── tests/                   # unit + integration tests (live tests opt-in)
+├── scripts/                 # reproducibility + README graphics check
+├── airflow/dags/            # Stub (Milestone 6)
+├── warehouse/               # Stub (Milestone 4)
+├── transformations/         # Stub (Milestone 5)
+├── infrastructure/terraform/ # Stub (Milestone 3, no paid infra)
+├── docs/                    # architecture, data dictionary, partitioning,
+│                            #   schema evolution, profiling, performance, runbook
+├── data/                    # all raw/staged/published/profiles/benchmarks (git-ignored)
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
@@ -363,7 +511,7 @@ Federal-Spending-Data/
 ## Implementation roadmap
 
 - [x] Milestone 1: API ingestion, validation, manifests, Parquet and local reconciliation
-- [ ] Milestone 2: Full archive ingestion, historical profiling and partitioning
+- [ ] Milestone 2: Full archive ingestion, historical profiling and partitioning — _implementation complete; NASA FY2025–2026 real-data acceptance passed; broader multi-agency / FY2022–2024 backfill pending review_
 - [ ] Milestone 3: AWS S3 data lake
 - [ ] Milestone 4: Snowflake warehouse
 - [ ] Milestone 5: dbt dimensional models and marts
@@ -375,6 +523,11 @@ Federal-Spending-Data/
 
 - [Architecture](docs/ARCHITECTURE.md) — components, data flow, design decisions and roadmap.
 - [Data dictionary](docs/DATA_DICTIONARY.md) — stable contract columns, types and semantics.
+- [Partitioning](docs/PARTITIONING.md) — fiscal calendar, Hive layout, atomic publication.
+- [Schema evolution](docs/SCHEMA_EVOLUTION.md) — registry, comparison and compatibility policy.
+- [Data profiling](docs/DATA_PROFILING.md) — profiling methodology and reproducible findings.
+- [Performance](docs/PERFORMANCE.md) — measured benchmarks and partition-pruning evidence.
+- [Runbook](docs/RUNBOOK.md) — operational commands and recovery procedures.
 
 ## Target repository structure
 
