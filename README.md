@@ -177,6 +177,85 @@ Common options where applicable: `--data-dir`, `--batch-size`, `--compression`,
 `--row-group-size`, `--dry-run`, `--force`, `--resume`. See
 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for full operational guidance.
 
+## Milestone 2.1 — Acceptance and Hardening
+
+Milestone 2.1 closed the outstanding acceptance gaps: real **manually-downloaded
+Award Data Archive** files, multi-year and multi-agency coverage at **>1M
+transactions**, dataset-wide integrity validation, and **external** reconciliation
+against USAspending's own aggregate endpoint.
+
+### Published data lake (all contracts-only scope: award types A/B/C/D)
+
+| Agency | FY | Source rows | Published | Filtered (IDVs/scope) | De-obligations | Net obligation |
+|---|---|---|---|---|---|---|
+| NASA | 2022 | 27,045 | 23,015 | 4,030 | 1,661 | $15,239,515,074.07 |
+| NASA | 2023 | 24,868 | 20,918 | 3,950 | 1,602 | $16,129,077,722.63 |
+| NASA | 2024 | 23,182 | 19,779 | 3,403 | 1,653 | $15,015,940,724.18 |
+| NASA | 2025 | 21,284 | 21,284 | 0 | 1,716 | $15,787,739,509.64 |
+| NASA | 2026 | 17,603 | 17,603 | 0 | 1,281 | $16,095,847,228.00 |
+| DOE | 2026 | 11,376 | 10,469 | 907 | 1,084 | $55,135,256,088.16 |
+| GSA | 2026 | 1,437,500 | 1,300,826 | 136,674 | 43,168 | $28,724,193,258.25 |
+| **Total** | | **1,562,858** | **1,413,894** | | | **$162,127,569,604.93** |
+
+Every dataset: **0 quarantined**, reconciliation (source→target + per-partition) **PASSED**,
+12 fiscal-month partitions, negatives preserved. NASA FY2022–2024 came from the
+**manual** Award Data Archive (IDVs filtered to match the contracts-only lake);
+FY2025–2026 are the retained Milestone-2 API datasets (unchanged). GSA FY2026
+(**1.44M source rows, 2 CSV members, 3.2 GB uncompressed**) is the scale test.
+
+### Dataset-wide integrity
+
+`fsdw audit-integrity` over the whole lake: **1,413,894 published rows,
+1,413,894 distinct transaction keys, 0 duplicates, 0 cross-dataset collisions →
+PASSED**. Publication is now blocked if a candidate dataset's transaction keys
+collide with another published dataset (prevents double-counting); conflicts are
+reported, never silently overwritten. See [`docs/SCHEMA_EVOLUTION.md`](docs/SCHEMA_EVOLUTION.md).
+
+### External financial reconciliation (vs USAspending `spending_over_time`)
+
+Equivalent scope (awarding agency, fiscal year by `action_date`, award types A/B/C/D):
+
+| Dataset | Local net | External aggregate | Difference |
+|---|---|---|---|
+| NASA FY2024 | $15,015,940,724.18 | $15,015,940,724.18 | **$0.00 (exact)** |
+| NASA FY2025 | $15,787,739,509.64 | $15,787,739,509.64 | **$0.00 (exact)** |
+| NASA FY2026 | $16,095,847,228.00 | $16,095,925,883.00 | −$78,655 (0.0005%) |
+| DOE FY2026 | $55,135,256,088.16 | $55,135,498,845.76 | −$242,758 (0.0004%) |
+| GSA FY2026 | $28,724,193,258.25 | $28,936,083,564.31 | −$211.9M (0.73%) |
+
+Settled fiscal years reconcile **exactly to the cent**; the most-recent/high-churn
+datasets differ only by data-refresh timing (live aggregate vs point-in-time
+snapshot), all within a 1% tolerance. Run with `fsdw reconcile-external`.
+
+### Manual vs API archive comparison (NASA FY2026)
+
+The manual Award Data Archive and the API bulk-download share an **identical
+297-column schema** (no normalization needed). The manual "Contracts Full" file
+carries **23,540 rows** (contracts + IDVs); filtered to contracts-only it is 17,592
+rows / $16.093B, matching the API dataset (17,603 / $16.096B) to within the
+data-refresh delta. The difference is award-type **scope** (IDVs), not schema.
+
+### New Milestone 2.1 commands
+
+```bash
+# Dataset-wide integrity audit (cross-dataset duplicate transactions)
+fsdw audit-integrity
+
+# External reconciliation vs the USAspending aggregate endpoint (network)
+fsdw reconcile-external --agency NASA --fiscal-year 2026
+
+# Backfill from the canonical manual Award Data Archive, contracts-only scope
+fsdw backfill --agency NASA --start-fy 2022 --end-fy 2024 --download --award-types contracts
+```
+
+### Scale & performance
+
+The lake holds **1.41M published transactions**, exceeding the 1M scale target.
+GSA FY2026 (1.3M published rows from a 3.2 GB uncompressed, 2-member archive)
+ingested end-to-end in ~113 s (~11,500 transactions/sec) under bounded-memory
+streaming. Measured benchmarks (throughput, peak memory, and partition-pruning
+effectiveness at scale) are in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
 ## Requirements and quickstart
 
 Python **3.12+**. The public API requires no credentials; this milestone provisions no paid cloud infrastructure. Run from the cloned repository root.
@@ -511,7 +590,8 @@ Federal-Spending-Data/
 ## Implementation roadmap
 
 - [x] Milestone 1: API ingestion, validation, manifests, Parquet and local reconciliation
-- [ ] Milestone 2: Full archive ingestion, historical profiling and partitioning — _implementation complete; NASA FY2025–2026 real-data acceptance passed; broader multi-agency / FY2022–2024 backfill pending review_
+- [x] Milestone 2: Full archive ingestion, historical profiling and partitioning
+- [x] Milestone 2.1: Acceptance & hardening — manual archives, NASA FY2022–2026, DOE & GSA FY2026 (1.41M transactions), dataset-wide integrity, external reconciliation
 - [ ] Milestone 3: AWS S3 data lake
 - [ ] Milestone 4: Snowflake warehouse
 - [ ] Milestone 5: dbt dimensional models and marts

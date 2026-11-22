@@ -314,3 +314,110 @@ has changed** (stale checkpoint protection).
   `docs/PERFORMANCE.md`.
 - **Cross-dataset (overlapping-window) dedup and corrections/deletions are
   deferred to the CDC milestone.**
+
+---
+
+# Architecture — Milestone 2.1 (Acceptance & Hardening)
+
+Milestone 2 proved a single dataset could be ingested, reconciled, and published
+atomically. Milestone 2.1 **hardens the published lake as a whole** and accepts it
+against the outside world. Three questions drive the work:
+
+1. **Can two datasets double-count the same obligation?** — answered by a
+   dataset-wide transaction-identity audit and a pre-publish integrity gate.
+2. **Does the lake agree with USAspending's own published totals?** — answered by
+   external financial reconciliation against the live aggregate API.
+3. **Is the lake a consistent *scope*?** — answered by an award-type scope filter
+   that narrows every dataset to contracts-only (award types A/B/C/D), and by
+   ingesting canonical **manual Award Data Archive** files alongside the retained
+   Milestone-2 API datasets.
+
+The lake now holds **7 published datasets** — NASA FY2022–FY2026, DOE FY2026, and
+GSA FY2026 — totalling **1,413,894 published transactions** and a net obligation of
+**$162,127,569,604.93**, all contracts-only scope, all reconciled. See
+`docs/DATA_PROFILING.md` for the per-dataset figures.
+
+## Modules added / extended in Milestone 2.1
+
+| Module | Responsibility | Key properties |
+|--------|----------------|----------------|
+| `ingestion/integrity.py` | **Dataset-wide transaction-identity validation** | `audit_integrity(settings)` scans the whole published lake (DuckDB) for duplicate `contract_transaction_unique_key` across datasets, classifying any cross-dataset duplicate as **identical** vs **conflicting** (differing `federal_action_obligation` or `last_modified_date`). `cross_dataset_overlap(...)` is the **pre-publish gate** (see below). Prevents double-counting obligations. |
+| `ingestion/external.py` | **External financial reconciliation** | `reconcile_external(agency, fy, settings, tolerance_pct=1.0)` compares the published dataset's net obligation to USAspending's `POST /api/v2/search/spending_over_time/` aggregate (`spending_level=transactions`) for an **equivalent scope** (awarding agency, fiscal year by `action_date`, award types A/B/C/D). Reports absolute + % difference and `within_tolerance`. Exact match is **not** expected — differences reflect data-refresh timing (live aggregate vs point-in-time snapshot). |
+| `ingestion/archive.py` | **Award-type scope filter + manual-archive downloader** | `ingest_archive` now accepts `award_type_codes` (`frozenset \| None`); when set (e.g. `{A,B,C,D}`), rows whose `award_type_code` is not in the set are counted as **filtered** (out of award-type scope) and excluded — this narrows the full manual archives (contracts + IDVs) to **contracts-only**. Recorded in the manifest under `scope_filter.award_type_codes`. `download_manual_archive()` fetches the canonical manual **"Contracts Full"** file from `https://files.usaspending.gov/award_data_archive/` (resolving the current `FY<fy>_<toptier>_Contracts_Full_*.zip` via the bucket listing). `backfill --download` now uses manual archives. |
+
+## Where the integrity gate sits in the lifecycle
+
+The pre-publish integrity gate is inserted into the Milestone-2 lifecycle
+**after reconciliation passes and before the atomic publish rename**:
+
+```
+… validate + dedup → fiscal/award-type scope filter → partitioned staging Parquet
+   ▼
+reconcile_dataset        (STAGING GATE — decimal-exact; blocks on failure)
+   ▼
+cross_dataset_overlap    (INTEGRITY GATE — Milestone 2.1)
+   │  checks the candidate's transaction keys against ALL already-published
+   │  OTHER datasets, EXCLUDING the same dataset's prior version so an
+   │  idempotent re-publish never self-collides.
+   │  Any overlap ⇒ status "integrity_conflict" — publication blocked unless --force.
+   ▼
+ATOMIC PUBLISH           (single directory rename)
+   ▼
+write manifest  (now includes scope_filter.award_type_codes)
+```
+
+Because the gate **excludes the dataset's own prior published version**, a
+re-publish of the same `(agency, FY)` can never collide with itself; only a *new*
+dataset that would introduce the same transaction key into the lake is blocked.
+This is what guarantees obligations are never double-counted across datasets.
+
+## Award-type scope and manual archives
+
+- `award_type_code` values **A/B/C/D** are definitive contracts (Definitive
+  Contract / Purchase Order / Delivery Order / BPA Call). **IDVs** carry a **blank**
+  `award_type_code` (their `idv_type_code` is populated instead). The scope filter
+  keeps A/B/C/D and counts IDVs as `filtered`.
+- The manual **"Contracts Full"** archive and the Milestone-2 **API** bulk-download
+  share an **identical 297-column schema** (0 columns differ; same types/formats) —
+  so **no normalization is needed**. They differ only in member naming
+  (`FY<fy>_<code>_Contracts_Full_<date>_N.csv` vs
+  `All_Contracts_PrimeTransactions_<ts>_N.csv`) and in the fact that the full
+  manual archive also contains IDVs, which the scope filter removes. See
+  `docs/DATA_PROFILING.md` for the verified manual-vs-API comparison.
+- NASA FY2022–FY2024 were ingested from the **manual** Award Data Archive (IDVs
+  filtered). NASA FY2025–FY2026 are the **retained** Milestone-2 API datasets
+  (unchanged). **GSA FY2026 is multi-member** — two CSV files
+  (`FY2026_047_Contracts_Full_20261108_1.csv` and `_2.csv`) — exercising
+  multi-member ingestion at scale (1.3M+ published rows).
+
+## Safety: the extract-size guard on real data
+
+The manual GSA FY2026 archive is **3.2 GB uncompressed**, which **exceeded the
+default 2 GiB `max_extract_bytes` cap** and was correctly **rejected** by the
+zip-bomb / size guard. Ingesting GSA required deliberately raising
+`FSDW_MAX_EXTRACT_BYTES` (e.g. to 8 GiB). This is the guard doing its job on real
+data — a large but legitimate archive is blocked until an operator explicitly
+raises the cap. See `docs/RUNBOOK.md`.
+
+## New CLI surface (Milestone 2.1)
+
+| Command | Purpose |
+|---------|---------|
+| `fsdw audit-integrity [--json]` | Dataset-wide transaction-identity audit across the published lake. |
+| `fsdw reconcile-external --agency X --fiscal-year Y [--tolerance-pct 1.0]` | External reconciliation against the USAspending aggregate. |
+| `fsdw ingest-archive … --award-types {all,contracts}` | `contracts` = A/B/C/D scope filter (matches the lake); default `all`. |
+| `fsdw backfill --download --award-types {all,contracts}` | Download + ingest manual "Contracts Full" archives. |
+
+## Limitations (Milestone 2.1)
+
+- **DoD not processed** (very large; needs storage/approval). Real data covers
+  only **NASA** (FY2022–FY2026), **DOE** (FY2026), and **GSA** (FY2026).
+- External reconciliation is within a **1% tolerance**; exactness holds only for
+  **settled** fiscal years. Differences on recent/high-churn datasets are
+  **refresh-timing**, not errors.
+- The lake is **contracts-only** (IDVs excluded). Full scope (incl. IDVs) is
+  reachable via `--award-types all` but is **not published**.
+- **GSA required a raised extract cap** (3.2 GB > 2 GiB default).
+- Milestone 2.1 only **detects and reports** cross-dataset conflicts. The
+  correction/deletion lifecycle (superseding versions, applying deltas) is
+  **deferred to the CDC milestone**.

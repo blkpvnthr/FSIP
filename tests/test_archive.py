@@ -168,3 +168,60 @@ def test_raw_archive_is_immutable(nasa_fy2026_archive: Path, settings: Settings)
     before = nasa_fy2026_archive.read_bytes()
     ingest_archive(nasa_fy2026_archive, "NASA", 2026, settings)
     assert nasa_fy2026_archive.read_bytes() == before
+
+
+def test_award_type_filter_excludes_idvs(tmp_path: Path, settings: Settings):
+    # Build an archive with an award_type_code column: 2 contracts + 1 IDV (blank code).
+    import csv as _csv
+    import io
+    import zipfile
+
+    header = [
+        "contract_transaction_unique_key",
+        "contract_award_unique_key",
+        "award_id_piid",
+        "modification_number",
+        "federal_action_obligation",
+        "action_date",
+        "last_modified_date",
+        "recipient_uei",
+        "recipient_name",
+        "awarding_agency_code",
+        "awarding_sub_agency_code",
+        "funding_agency_code",
+        "award_type_code",
+    ]
+
+    def row(tx, oblig, code):
+        return {
+            "contract_transaction_unique_key": tx,
+            "contract_award_unique_key": "AW",
+            "award_id_piid": "AW",
+            "modification_number": "P0",
+            "federal_action_obligation": oblig,
+            "action_date": "2025-10-15",
+            "last_modified_date": "2026-01-01 00:00:00+00",
+            "recipient_uei": "UEI1",
+            "recipient_name": "ACME",
+            "awarding_agency_code": "080",
+            "awarding_sub_agency_code": "8000",
+            "funding_agency_code": "080",
+            "award_type_code": code,
+        }
+
+    buf = io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=header)
+    w.writeheader()
+    for r in [row("C1", "100.00", "C"), row("D1", "200.00", "D"), row("IDV1", "900.00", "")]:
+        w.writerow(r)
+    zpath = tmp_path / "mixed.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("Contracts_Full_1.csv", buf.getvalue())
+
+    r = ingest_archive(
+        zpath, "NASA", 2026, settings, award_type_codes=frozenset({"A", "B", "C", "D"})
+    )
+    assert r.totals.source_rows == 3
+    assert r.totals.valid_rows == 2  # IDV excluded by award-type scope
+    assert r.totals.filtered_rows == 1
+    assert r.totals.net_obligation == Decimal("300.00")  # 100 + 200, IDV's 900 excluded

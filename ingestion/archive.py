@@ -33,6 +33,7 @@ from .checkpoints import Checkpoint, load_checkpoint, save_checkpoint
 from .client import safe_extract_zip, sha256_file
 from .config import Settings
 from .exceptions import IngestionError, UnsafeArchiveError
+from .integrity import cross_dataset_overlap
 from .logging_config import get_logger
 from .models import OBLIGATION_COLUMN, schema_fingerprint
 from .partitioning import PartitionedParquetWriter, PartitionKey, partition_key_for_row
@@ -235,6 +236,66 @@ def download_full_archive(agency_identifier: str, fiscal_year: int, settings: Se
     return dest
 
 
+MANUAL_ARCHIVE_BASE = "https://files.usaspending.gov/award_data_archive/"
+
+
+def resolve_manual_archive_url(agency_identifier: str, fiscal_year: int) -> str:
+    """Resolve the current Award Data Archive 'Contracts Full' URL for an agency/FY.
+
+    Lists the public archive bucket and picks the most recent generated file matching
+    ``FY<fy>_<toptier_code>_Contracts_Full_*.zip``.
+    """
+    import re
+
+    import requests
+
+    agency = resolve(agency_identifier)
+    prefix = f"FY{fiscal_year}_{agency.toptier_code}_Contracts_Full"
+    resp = requests.get(
+        MANUAL_ARCHIVE_BASE, params={"list-type": "2", "prefix": prefix}, timeout=60
+    )
+    resp.raise_for_status()
+    # Extract <Key> values with a regex rather than an XML parser (avoids XXE/entity
+    # expansion risk on an external response; the S3 listing format is simple).
+    keys = re.findall(r"<Key>([^<]+)</Key>", resp.text)
+    keys = [k for k in keys if "Contracts_Full" in k and k.endswith(".zip")]
+    if not keys:
+        raise IngestionError(
+            f"No Award Data Archive Contracts Full file found for {agency.key} FY{fiscal_year}"
+        )
+    return MANUAL_ARCHIVE_BASE + sorted(keys)[-1]  # latest by generation-date suffix
+
+
+def download_manual_archive(agency_identifier: str, fiscal_year: int, settings: Settings) -> Path:
+    """Download the canonical manual Award Data Archive Contracts Full file.
+
+    Stored immutably under ``archive_root/<agency>/fy<YYYY>/``. Requires network
+    access; used by ``backfill --download`` (manual archives are the authoritative
+    historical source). The downloaded file is contract **full scope** (definitive
+    contracts *and* IDVs); pass ``award_type_codes`` at ingest to narrow scope.
+    """
+    from .client import UsaspendingClient
+
+    agency = resolve(agency_identifier)
+    url = resolve_manual_archive_url(agency.key, fiscal_year)
+    dest_dir = settings.archive_root / agency.key.lower() / f"fy{fiscal_year}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / url.rsplit("/", 1)[-1]
+    UsaspendingClient(settings).download_file(url, dest)
+    log.info(
+        "archive.manual_downloaded",
+        extra={
+            "context": {
+                "agency": agency.key,
+                "fiscal_year": fiscal_year,
+                "url": url,
+                "path": str(dest),
+            }
+        },
+    )
+    return dest
+
+
 def _tally_obligation(row: dict[str, str], totals: IngestTotals) -> None:
     value = parse_decimal(row.get(OBLIGATION_COLUMN))  # valid rows: non-blank, parseable
     if value is None:
@@ -267,6 +328,7 @@ def ingest_archive(
     dry_run: bool = False,
     force: bool = False,
     resume: bool = False,
+    award_type_codes: frozenset[str] | None = None,
     timings: dict[str, float] | None = None,
 ) -> ArchiveIngestResult:
     """Ingest one full contract archive into the partitioned data lake.
@@ -376,6 +438,12 @@ def ingest_archive(
                     if pkey.fiscal_year != fiscal_year:
                         totals.filtered_rows += 1  # out of requested FY scope
                         continue
+                    if (
+                        award_type_codes is not None
+                        and (row.get("award_type_code") or "").strip() not in award_type_codes
+                    ):
+                        totals.filtered_rows += 1  # out of award-type scope (e.g. IDVs)
+                        continue
                     per_partition.setdefault(pkey, []).append(row)
 
                 for pkey, rows in per_partition.items():
@@ -448,6 +516,7 @@ def ingest_archive(
             published_path=None,
             status="reconciliation_failed",
             quarantine_path=(quarantine_path if (quarantine and quarantine.count) else None),
+            award_type_codes=award_type_codes,
         )
         _write_manifest(manifest, manifest_path)
         return ArchiveIngestResult(
@@ -465,7 +534,7 @@ def ingest_archive(
             inspection=inspection,
         )
 
-    # Conflict detection vs an already-published dataset.
+    # Conflict detection vs an already-published dataset (same dataset id).
     conflict = False
     idempotent = False
     if published_fy_dir.exists() and manifest_path.exists():
@@ -475,6 +544,16 @@ def ingest_archive(
             idempotent = True
         elif not force:
             conflict = True
+
+    # Dataset-wide integrity gate: the same transaction key must not already exist
+    # in a DIFFERENT published dataset (that would double-count obligations).
+    overlap = cross_dataset_overlap(
+        parquet_stage,
+        settings,
+        current_agency=agency.key,
+        current_fiscal_year=fiscal_year,
+    )
+    integrity_conflict = overlap.has_overlap and not force
 
     status = "published"
     published_path: Path | None = None
@@ -486,6 +565,19 @@ def ingest_archive(
                 "context": {
                     "dataset_id": dataset_id,
                     "hint": "content differs from published; use --force (CDC)",
+                }
+            },
+        )
+    elif integrity_conflict:
+        status = "integrity_conflict"
+        log.error(
+            "archive.integrity_conflict",
+            extra={
+                "context": {
+                    "dataset_id": dataset_id,
+                    "overlapping_keys": overlap.overlapping_keys,
+                    "conflicting_keys": overlap.conflicting_keys,
+                    "hint": "transaction keys collide with another published dataset",
                 }
             },
         )
@@ -516,6 +608,7 @@ def ingest_archive(
         published_path=published_path,
         status=status,
         quarantine_path=(quarantine_path if (quarantine and quarantine.count) else None),
+        award_type_codes=award_type_codes,
     )
     _write_manifest(manifest, manifest_path)
 
@@ -535,9 +628,10 @@ def ingest_archive(
         quarantine_path=(quarantine_path if (quarantine and quarantine.count) else None),
         partition_count=len(partition_stats),
         parquet_file_count=parquet_file_count,
-        conflict=conflict,
+        conflict=(conflict or integrity_conflict),
         idempotent=idempotent,
         inspection=inspection,
+        extra={"cross_dataset_overlap": overlap.to_dict()},
     )
 
 
@@ -579,6 +673,7 @@ def _build_manifest(
     published_path: Path | None,
     status: str,
     quarantine_path: Path | None,
+    award_type_codes: frozenset[str] | None = None,
 ) -> dict:
     return {
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
@@ -590,6 +685,7 @@ def _build_manifest(
             "date_type": "action_date",
             "fy_start": fy_start.isoformat(),
             "fy_end": fy_end.isoformat(),
+            "award_type_codes": (sorted(award_type_codes) if award_type_codes else "all"),
         },
         "source_archive": {
             "original_file_name": inspection.zip_path.name,

@@ -57,6 +57,76 @@ The two NASA archives actually processed were compared:
 Both fiscal years share the same schema fingerprint over the 297-column header,
 confirming no drift across the year boundary.
 
+## Verified result: FY2022 → FY2026 (NASA, 5 fiscal years, real data)
+
+Milestone 2.1 extended the comparison across the full five-year NASA history now in
+the lake:
+
+| Comparison | Result |
+|------------|--------|
+| NASA FY2022 → FY2026 column sets | **Identical = True** — 297 columns stable across all 5 fiscal years |
+| Classification | **`compatible`** |
+
+The 297-column contract is stable across every NASA fiscal year processed
+(FY2022–FY2026), spanning both **manual Award Data Archive** sources (FY2022–FY2024)
+and **API bulk-download** sources (FY2025–FY2026). The classification policy
+(`compatible` / `potentially_breaking` / `breaking`) is **unchanged** from
+Milestone 2.
+
+### Manual vs API archive schema
+
+A key Milestone-2.1 finding: the manual "Contracts Full" archive and the API
+bulk-download produce an **identical 297-column schema** (0 columns differ, same
+types/formats), so **no schema normalization is required** to mix the two sources
+in one lake. They differ only in member file naming and in award-type content
+(the manual full archive also contains IDVs, which the award-type scope filter
+removes) — **not** in schema. This retires the Milestone-2 open question of whether
+a real manual-archive file would have a different shape. See `docs/DATA_PROFILING.md`.
+
+## Dataset-wide integrity (Milestone 2.1)
+
+Schema fingerprinting protects a *single* dataset's contract. Milestone 2.1 adds a
+complementary protection across the *whole lake*: **cross-dataset transaction-identity
+validation**, so the same obligation can never be counted twice in two different
+published datasets.
+
+Integrity logic lives in `ingestion/integrity.py`.
+
+### Pre-publish integrity gate
+
+`cross_dataset_overlap(...)` runs **after reconciliation passes and before the
+atomic publish**. It checks the candidate dataset's `contract_transaction_unique_key`
+values against **all already-published OTHER datasets**, deliberately **excluding the
+same dataset's own prior published version** so an idempotent re-publish never
+self-collides. Any overlap sets status **`integrity_conflict`** and **blocks
+publication** unless `--force` is given. This is the structural guarantee against
+double-counting obligations across datasets.
+
+### Dataset-wide audit
+
+`audit_integrity(settings)` scans the entire published lake (via DuckDB) for
+duplicate transaction keys across datasets and classifies any cross-dataset
+duplicate as **identical** vs **conflicting** (differing `federal_action_obligation`
+or `last_modified_date`). Run it with `fsdw audit-integrity` (see `docs/RUNBOOK.md`).
+
+Verified result over the 7-dataset lake (DOE FY2026, GSA FY2026, NASA FY2022–FY2026):
+
+| Metric | Value |
+|--------|------:|
+| `total_published_rows` | 1,413,894 |
+| `distinct_transaction_keys` | 1,413,894 |
+| `duplicate_key_count` | 0 |
+| `cross_dataset_key_count` | 0 |
+| `conflicting_key_count` | 0 |
+| Result | **PASSED** |
+
+Every published transaction key is globally unique across the lake — no duplicates,
+no cross-dataset overlap, no conflicts.
+
+> **Scope note:** Milestone 2.1 only **detects and reports** cross-dataset
+> conflicts. The correction/deletion lifecycle (superseding versions, applying
+> deltas to resolve a conflict) is **deferred to the CDC milestone**.
+
 ## Remediation guidance
 
 When a comparison returns something other than `compatible`:
@@ -69,11 +139,13 @@ When a comparison returns something other than `compatible`:
 
 ## Limitations
 
-- The "full archive" processed is the **API-generated bulk-download** full
-  fiscal-year file. A **manually-downloaded Award Data Archive** file may have a
-  different schema. The code is schema-agnostic and will fingerprint and classify
-  such a file, but a real manual-archive file **was not processed** in
-  Milestone 2.
+- In Milestone 2 only the **API-generated bulk-download** was processed, leaving
+  open whether a **manually-downloaded Award Data Archive** might differ in schema.
+  **Milestone 2.1 resolved this:** real manual "Contracts Full" archives
+  (NASA FY2022–FY2024, DOE FY2026, GSA FY2026) were processed and found to carry
+  the **identical 297-column schema** (`compatible`) — no normalization needed.
 - Automatic remediation (e.g. column-level migrations) is out of scope; the
   registry **detects and classifies** change, remediation is a deliberate
   engineering step.
+- Cross-dataset integrity is **detect-and-report only** in Milestone 2.1;
+  conflict resolution is deferred to the CDC milestone.

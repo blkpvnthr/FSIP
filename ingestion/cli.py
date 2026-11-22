@@ -98,6 +98,13 @@ def _build_parser() -> argparse.ArgumentParser:
     ia.add_argument(
         "--resume", action="store_true", help="Skip if already published (same archive)."
     )
+    ia.add_argument(
+        "--award-types",
+        default="all",
+        choices=["contracts", "all"],
+        help="Award-type scope: 'all' keeps every award in the archive (default); "
+        "'contracts' keeps only A/B/C/D (matches the existing contracts-only lake).",
+    )
     _add_storage_opts(ia)
 
     # ---- Milestone 2: backfill ----
@@ -113,6 +120,12 @@ def _build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--dry-run", action="store_true", help="Report plan; do not ingest/download.")
     bf.add_argument(
         "--force", action="store_true", help="Overwrite conflicting published datasets."
+    )
+    bf.add_argument(
+        "--award-types",
+        default="all",
+        choices=["contracts", "all"],
+        help="Award-type scope applied at ingest (default: all; 'contracts' = A/B/C/D).",
     )
     _add_storage_opts(bf)
 
@@ -147,6 +160,24 @@ def _build_parser() -> argparse.ArgumentParser:
     cs.add_argument("--from-fy", type=int, required=True, help="Baseline fiscal year.")
     cs.add_argument("--to-fy", type=int, required=True, help="Comparison fiscal year.")
     cs.add_argument("--data-dir", type=Path, default=None, help="Data-lake root override.")
+
+    # ---- Milestone 2.1: audit-integrity ----
+    ai = sub.add_parser(
+        "audit-integrity",
+        help="Audit the whole published lake for cross-dataset duplicate transactions.",
+    )
+    ai.add_argument("--data-dir", type=Path, default=None, help="Data-lake root override.")
+    ai.add_argument("--json", action="store_true", help="Emit the JSON integrity report.")
+
+    # ---- Milestone 2.1: reconcile-external ----
+    re_ = sub.add_parser(
+        "reconcile-external",
+        help="Compare a published dataset to the USAspending aggregate endpoint (network).",
+    )
+    re_.add_argument("--agency", required=True, help=f"Agency key (known: {known}).")
+    re_.add_argument("--fiscal-year", type=int, required=True, help="Federal fiscal year.")
+    re_.add_argument("--tolerance-pct", type=float, default=1.0, help="Acceptable %% difference.")
+    re_.add_argument("--data-dir", type=Path, default=None, help="Data-lake root override.")
 
     return parser
 
@@ -218,9 +249,23 @@ def _print_ingest_result(r) -> None:
     if r.reconciliation is not None:
         print(f"  reconciliation   : {'PASS' if r.reconciliation.passed else 'FAIL'}")
     print(f"  idempotent       : {r.idempotent}   conflict: {r.conflict}")
+    overlap = r.extra.get("cross_dataset_overlap", {})
+    if overlap.get("has_overlap"):
+        print(
+            f"  cross-dataset    : {overlap['overlapping_keys']} overlapping keys "
+            f"({overlap['conflicting_keys']} conflicting) — BLOCKED"
+        )
     print(f"  published path   : {r.published_path or '(not published)'}")
     print(f"  quarantine       : {r.quarantine_path or '(none)'}")
     print(f"  manifest         : {r.manifest_path}")
+
+
+_CONTRACT_CODES = frozenset({"A", "B", "C", "D"})
+
+
+def _award_type_codes(choice: str) -> frozenset[str] | None:
+    """Map the CLI --award-types choice to a set of award_type_code values."""
+    return _CONTRACT_CODES if choice == "contracts" else None
 
 
 def _run_ingest_archive(args: argparse.Namespace, settings: Settings) -> int:
@@ -234,10 +279,11 @@ def _run_ingest_archive(args: argparse.Namespace, settings: Settings) -> int:
         dry_run=args.dry_run,
         force=args.force,
         resume=args.resume,
+        award_type_codes=_award_type_codes(args.award_types),
     )
     _print_ingest_result(r)
     # Non-zero exit if reconciliation failed or a conflict blocked publication.
-    if r.status in {"reconciliation_failed", "conflict"}:
+    if r.status in {"reconciliation_failed", "conflict", "integrity_conflict"}:
         return 3
     return 0
 
@@ -252,11 +298,13 @@ def _find_local_archive(agency: str, fiscal_year: int, settings: Settings) -> Pa
 
 
 def _run_backfill(args: argparse.Namespace, settings: Settings) -> int:
-    from .archive import download_full_archive, ingest_archive
+    from .archive import download_manual_archive, ingest_archive
 
+    codes = _award_type_codes(args.award_types)
     print(
         f"Backfill {args.agency} FY{args.start_fy}..FY{args.end_fy} "
-        f"(download={'yes' if args.download else 'no'}, dry_run={args.dry_run})"
+        f"(download={'yes' if args.download else 'no'}, dry_run={args.dry_run}, "
+        f"award_types={args.award_types})"
     )
     overall_ok = True
     for fy in range(args.start_fy, args.end_fy + 1):
@@ -268,13 +316,15 @@ def _run_backfill(args: argparse.Namespace, settings: Settings) -> int:
             if args.dry_run:
                 print(f"  FY{fy}: MISSING — would download (dry-run, skipped).")
                 continue
-            print(f"  FY{fy}: downloading full archive ...")
-            local = download_full_archive(args.agency, fy, settings)
+            print(f"  FY{fy}: downloading manual Award Data Archive ...")
+            local = download_manual_archive(args.agency, fy, settings)
         if args.dry_run:
             r = ingest_archive(local, args.agency, fy, settings, dry_run=True)
             print(f"  FY{fy}: dry-run inspect OK ({local.name})")
             continue
-        r = ingest_archive(local, args.agency, fy, settings, force=args.force)
+        r = ingest_archive(
+            local, args.agency, fy, settings, force=args.force, award_type_codes=codes
+        )
         print(
             f"  FY{fy}: {r.status} — {r.totals.valid_rows} rows, "
             f"{r.partition_count} partitions, net {r.totals.net_obligation}"
@@ -366,6 +416,42 @@ def _run_compare_schemas(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _run_audit_integrity(args: argparse.Namespace, settings: Settings) -> int:
+    from .integrity import audit_integrity
+
+    report = audit_integrity(settings)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print("\nDataset-wide integrity audit:")
+        print(f"  published datasets      : {report.published_datasets}")
+        print(f"  total published rows    : {report.total_published_rows}")
+        print(f"  distinct transaction ids: {report.distinct_transaction_keys}")
+        print(f"  duplicate keys (any)    : {report.duplicate_key_count}")
+        print(f"  cross-dataset keys      : {report.cross_dataset_key_count}")
+        print(f"  conflicting keys        : {report.conflicting_key_count}")
+        print("RESULT:", "PASSED (no cross-dataset duplicates)" if report.passed else "FAILED")
+    return 0 if report.passed else 3
+
+
+def _run_reconcile_external(args: argparse.Namespace, settings: Settings) -> int:
+    from .external import reconcile_external
+
+    r = reconcile_external(
+        args.agency, args.fiscal_year, settings, tolerance_pct=args.tolerance_pct
+    )
+    print(f"\nExternal reconciliation for {args.agency} FY{args.fiscal_year}:")
+    print(f"  award types          : {r.award_type_codes}")
+    print(f"  local net obligation : {r.local_net_obligation}")
+    print(f"  external (USAspending): {r.external_contract_obligations}")
+    print(f"  difference           : {r.difference}  ({r.pct_difference}%)")
+    print(f"  tolerance            : {r.tolerance_pct}%")
+    print(f"  endpoint             : {r.endpoint}")
+    print("RESULT:", "WITHIN TOLERANCE" if r.within_tolerance else "OUTSIDE TOLERANCE")
+    print(f"  note: {r.note}")
+    return 0 if r.within_tolerance else 3
+
+
 _HANDLERS = {
     "extract": _run_extract,
     "ingest-archive": _run_ingest_archive,
@@ -375,6 +461,8 @@ _HANDLERS = {
     "reconcile": _run_reconcile,
     "benchmark": _run_benchmark,
     "compare-schemas": _run_compare_schemas,
+    "audit-integrity": _run_audit_integrity,
+    "reconcile-external": _run_reconcile_external,
 }
 
 
