@@ -720,6 +720,24 @@ Federal-Spending-Data/
 - [ ] Milestone 7: CDC, governance and production monitoring
 - [ ] Milestone 8: Business intelligence, deployment and performance documentation
 
+## Releases
+
+Current version: **`v0.3.0-alpha.1`** (`fsdw --version` → `0.3.0a1`). The stable
+`v0.3.0` is gated on live AWS deployment + migration (see the Milestone 3 status).
+
+| Release | Scope | Status |
+|---|---|---|
+| `v0.1.0` | Milestone 1 — API ingestion foundation | Released |
+| `v0.2.1` | Milestone 2 / 2.1 — historical lake + hardening (1.41M tx) | Released |
+| `v0.3.0-alpha.1` | Milestone 3 **Phase A** — offline S3 implementation + Terraform (not deployed) | Released |
+| `v0.3.0-alpha.2` | Phase B — validated AWS infrastructure deployment | Planned (pending approval) |
+| `v0.3.0-beta.1` | Phase C — NASA FY2026 cloud pilot | Planned |
+| `v0.3.0-rc.1` | Phase D — complete historical cloud migration | Planned |
+| `v0.3.0` | Phase E — fully verified AWS S3 cloud data lake | Planned |
+
+Prerelease tags are cut only for independently verified functionality; a prerelease
+is never published for an incomplete or failing phase.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — components, data flow, design decisions and roadmap.

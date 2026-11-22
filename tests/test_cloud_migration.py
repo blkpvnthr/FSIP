@@ -70,6 +70,29 @@ def test_cloud_benchmark(published_local: Settings, tmp_path):
     assert result["s3_request_count"] is None
 
 
+def test_gc_detects_orphaned_snapshot_not_active_one(
+    published_local: Settings, local_cloud_backend
+):
+    from ingestion.cloud import keys
+    from ingestion.cloud.gc import find_orphaned_snapshots
+
+    r = migration.migrate_dataset(published_local, "NASA", 2026, backend=local_cloud_backend)
+    # No orphans right after a clean publish.
+    assert find_orphaned_snapshots(local_cloud_backend) == []
+
+    # Simulate a partial-failure orphan: copy one active part into an unreferenced
+    # snapshot_id prefix (as a crash between curated-write and catalog-advance would).
+    active_part = r.part_keys[0]
+    orphan_key = keys.curated_part_key("NASA", 2026, "ORPHANSNAP", 1, "part-00000.parquet")
+    local_cloud_backend.copy(active_part, orphan_key)
+
+    orphans = find_orphaned_snapshots(local_cloud_backend)
+    assert [o.snapshot_id for o in orphans] == ["ORPHANSNAP"]
+    assert orphans[0].object_count == 1
+    # The active snapshot is NOT flagged.
+    assert r.snapshot_id not in {o.snapshot_id for o in orphans}
+
+
 def test_cost_estimate(published_local: Settings):
     est = estimate_costs(published_local)
     assert est["recommended_budget_usd"] == 5

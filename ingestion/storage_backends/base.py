@@ -10,10 +10,20 @@ Design rules
 * **Streaming, bounded memory.** ``upload_file``/``download_file``/``open_read``
   never load a whole multi-gigabyte object into memory; large uploads use
   multipart transfers.
-* **Conditional writes.** ``put_bytes``/``upload_file`` accept a ``precondition``:
-  ``"absent"`` (create-only — used for immutable raw and curated snapshot
-  objects) or an etag string (compare-and-swap — used for the catalog pointer).
-  A violated precondition raises :class:`PreconditionFailedError`.
+* **Conditional writes.** ``put_bytes`` accepts a ``precondition``: ``"absent"``
+  (create-only) or an etag string (compare-and-swap). On S3 these map to *native*
+  ``If-None-Match`` / ``If-Match`` headers, so the catalog-pointer CAS (the only
+  object whose atomicity gates reader visibility) and the small JSON control
+  objects get truly atomic conditional writes.
+  ``upload_file``/``copy`` (used for large multipart archives and server-side
+  snapshot copies) honor ``precondition="absent"`` via a *check-then-act* guard,
+  because the managed multipart/copy APIs do not expose an atomic conditional
+  write. For those, create-only is best-effort against concurrent writers; raw and
+  curated objects are content-addressed / snapshot-id-scoped (so a race writes
+  identical or disjoint bytes), and the authoritative transactional guarantee is
+  the catalog-pointer CAS. A violated precondition raises
+  :class:`PreconditionFailedError`. Production WORM should additionally enable S3
+  Object Lock (see docs/CLOUD_SECURITY.md).
 * **Checksums.** ``sha256`` streams an object and returns its hex digest, so the
   same integrity check works locally and in the cloud.
 """

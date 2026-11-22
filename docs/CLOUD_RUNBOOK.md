@@ -212,3 +212,20 @@ and rely on lifecycle cleanup; escalate if growth is unexplained.
 - `docs/CLOUD_MIGRATION.md` — migration order and verified results.
 - `docs/CLOUD_SECURITY.md` — IAM, encryption, immutability.
 - `docs/CLOUD_COSTS.md` — cost model and budgets.
+
+## Reclaiming orphaned snapshots (`fsdw cloud gc`)
+
+A publication that fails *after* writing curated snapshot objects but *before*
+advancing the catalog pointer leaves orphaned objects that no catalog version
+references. `fsdw cloud gc` **reports** these (read-only); it never deletes, because
+the ingestion role is denied delete on `curated/`/`control/` by design (immutability).
+
+```bash
+fsdw cloud gc            # list orphaned snapshot_ids + reclaimable bytes
+fsdw cloud gc --json     # machine-readable
+```
+
+Reclamation is an explicit **admin** operation: an operator holding the
+infra-admin role deletes the reported orphan prefixes after confirming they are
+unreferenced by `current.json` and every `control/catalogs/v*.json` (which `gc`
+already checks, so rollback targets are never flagged).

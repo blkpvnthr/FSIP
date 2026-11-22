@@ -51,10 +51,13 @@ def _add_storage_opts(p: argparse.ArgumentParser) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     parser = argparse.ArgumentParser(
         prog="fsdw",
         description="Federal Spending Data Warehouse — USAspending.gov ingestion.",
     )
+    parser.add_argument("--version", action="version", version=f"fsdw {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     known = ", ".join(sorted(AGENCIES))
 

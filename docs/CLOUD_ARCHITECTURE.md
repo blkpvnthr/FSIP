@@ -134,9 +134,11 @@ unchanged from Milestone 2.
 Terraform under `infrastructure/terraform/` defines a single bucket (versioning,
 SSE, full public-access block, TLS-only + deny-unencrypted-PutObject policy,
 lifecycle cleanup), three least-privilege bucket-scoped IAM policies, and optional
-monitoring (AWS Budgets $5 alert / $10 escalation). It is authored and reviewed
-but **not applied**; `terraform validate` was **not run** (Terraform not installed
-in the build environment). See `docs/AWS_SETUP.md` and `docs/CLOUD_SECURITY.md`.
+monitoring (AWS Budgets $5 alert / $10 escalation). It is authored, reviewed, and
+**CLI-validated** (Terraform 1.9.5: `fmt -check` clean, `init -backend=false` +
+`validate` → *"Success! The configuration is valid."*) but **not applied** — apply
+requires AWS credentials and explicit approval. See `docs/AWS_SETUP.md` and
+`docs/CLOUD_SECURITY.md`.
 
 ## 8. Future boundary — Snowflake (Milestone 4)
 
