@@ -1,0 +1,46 @@
+# Example variables for the FSIP dev environment.
+# Copy this file to terraform.tfvars and replace the placeholders.
+#   cp terraform.tfvars.example terraform.tfvars
+# NOTE: terraform.tfvars is git-ignored. NEVER commit real values or secrets.
+# These are all NON-SECRET configuration values; AWS credentials come from the
+# standard provider chain (env vars / shared config / SSO), never from here.
+
+region      = "us-east-1"
+environment = "dev"
+
+# Globally unique bucket name. Convention: fsip-<account_or_suffix>-dev
+bucket_name = "fsip-REPLACE-ME-dev"
+
+# Encryption: leave empty for SSE-S3 (AES256, free). Set to an existing KMS key
+# ARN to use SSE-KMS (adds KMS request cost). This project never creates a key.
+kms_key_arn = ""
+
+# Lifecycle tuning (days)
+abort_multipart_days    = 7
+staging_expiration_days = 7
+noncurrent_version_days = 30
+
+# Optional access logging (adds cost). If enabled, point at an existing bucket.
+enable_access_logging = false
+logging_target_bucket = ""
+
+# IAM: create roles and allow this principal to assume them.
+# Replace the account id. Use the account root or a specific role/user ARN.
+create_roles           = true
+trusted_principal_arns = ["arn:aws:iam::000000000000:root"]
+
+# Allow the ingestion role to delete under quarantine/* as well as staging/*.
+allow_quarantine_delete = false
+
+# Monitoring
+enable_budget            = true
+monthly_budget_usd       = 5
+budget_escalation_usd    = 10
+alert_emails             = ["you@example.com"]
+enable_cloudwatch_alarms = false
+
+# Extra tags (optional)
+tags = {
+  Owner      = "data-platform"
+  CostCenter = "REPLACE-ME"
+}

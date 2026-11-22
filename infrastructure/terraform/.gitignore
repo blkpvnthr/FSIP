@@ -1,0 +1,18 @@
+# Terraform state (may contain sensitive values) — never commit.
+*.tfstate
+*.tfstate.*
+
+# Variable files with real values — never commit. Keep the *.example templates.
+*.tfvars
+!*.tfvars.example
+
+# Provider plugins and local working dir.
+.terraform/
+.terraform.lock.hcl
+
+# Crash logs.
+crash.log
+crash.*.log
+
+# Real backend config — keep backend.tf.example, ignore the live one.
+backend.tf

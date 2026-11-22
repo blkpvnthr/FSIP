@@ -547,13 +547,18 @@ def ingest_archive(
 
     # Dataset-wide integrity gate: the same transaction key must not already exist
     # in a DIFFERENT published dataset (that would double-count obligations).
+    #
+    # NOTE: ``--force`` authorizes replacing a dataset's OWN prior version (the
+    # same-dataset content conflict above); it must NEVER bypass dataset-wide
+    # transaction uniqueness. Transaction uniqueness is a non-negotiable
+    # publication-integrity requirement, so ``force`` does not relax this gate.
     overlap = cross_dataset_overlap(
         parquet_stage,
         settings,
         current_agency=agency.key,
         current_fiscal_year=fiscal_year,
     )
-    integrity_conflict = overlap.has_overlap and not force
+    integrity_conflict = overlap.has_overlap
 
     status = "published"
     published_path: Path | None = None

@@ -46,3 +46,34 @@ class SchemaContractError(IngestionError):
 
 class ValidationError(IngestionError):
     """A non-recoverable validation failure (distinct from per-row quarantine)."""
+
+
+# --------------------------------------------------------------------------- #
+# Milestone 3: storage-backend errors
+# --------------------------------------------------------------------------- #
+class StorageError(IngestionError):
+    """Base class for storage-backend errors (local or S3)."""
+
+
+class ObjectNotFoundError(StorageError):
+    """A requested object key does not exist."""
+
+
+class PreconditionFailedError(StorageError):
+    """A conditional write failed (object already exists, or etag mismatch).
+
+    Used for optimistic-concurrency control on the published-catalog pointer and
+    for create-only writes of immutable raw / curated snapshot objects.
+    """
+
+
+class StorageConfigError(StorageError):
+    """Cloud/storage configuration is missing or invalid."""
+
+
+class CloudPublicationError(IngestionError):
+    """A cloud publication could not be completed safely."""
+
+
+class IntegrityError(IngestionError):
+    """A dataset-wide transaction-uniqueness or reconciliation invariant was violated."""

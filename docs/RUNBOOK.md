@@ -274,3 +274,25 @@ Durable JSON checkpoints (`data/checkpoints/`) are keyed by dataset id.
 - Cross-dataset conflicts are **detected and reported** (`audit-integrity` and the
   pre-publish gate) but **not resolved**: corrections/deletions and
   overlapping-window dedup are **deferred to the CDC milestone**.
+
+---
+
+## Milestone 3 — cloud (status)
+
+Milestone 3 adds a cloud command surface (`fsdw cloud check | inventory |
+plan-sync | sync | verify | audit-integrity | reconcile | list-snapshots |
+rollback | benchmark | estimate-cost`) plus a `--storage-backend {local,s3}` flag
+on `ingest-archive`, `profile`, and `reconcile`. The S3 backend is off by default
+and selected **only** by `FSDW_STORAGE_BACKEND=s3` (never implicitly by
+credentials). Cloud exit codes extend the local scheme: `0` ok, `2` config, `4`
+auth, `5` missing-infra, `6` conflict, `7` integrity, `8` network.
+
+**Status:** AWS is **prepared but not deployed** — no AWS resources exist, and
+`terraform validate` was not run (Terraform not installed locally). The 7-dataset
+migration was reproduced against a **local-backend cloud-lake emulation** (not live
+S3) and reconciles to the exact baseline; **live S3 acceptance is pending approval
+(Phase B/C).**
+
+Full cloud operations — every command with examples, failure recovery, and
+deletion safeguards — are in `docs/CLOUD_RUNBOOK.md`; setup is in
+`docs/AWS_SETUP.md`.

@@ -152,3 +152,29 @@ own `fiscal_year` subtree and never another dataset's files. This isolation is w
 lets the atomic replace-not-append publish, the per-dataset reconciliation, and the
 Milestone-2.1 cross-dataset integrity audit all operate without datasets
 interfering with one another on disk.
+
+---
+
+## Milestone 3 — cloud (status)
+
+In the cloud lake the same Hive layout becomes an **S3 object-key** layout under a
+curated snapshot prefix:
+
+```
+curated/contracts/awarding_agency=<A>/fiscal_year=<FY>/snapshot_id=<id>/fiscal_month=<MM>/part-*.parquet
+```
+
+The `awarding_agency` / `fiscal_year` / `fiscal_month` partition columns are
+preserved exactly, so partition pruning works identically for DuckDB `httpfs`,
+Athena, and Spark readers. Because S3 has no atomic directory rename, the
+Milestone-2 atomic-rename publish is replaced by an immutable **per-snapshot
+prefix** plus a catalog pointer (`control/current.json`); readers resolve the
+active snapshot via the catalog and never glob historical snapshots. Partition
+pruning is expected to convert to a **wall-time** win on object storage, where
+per-object latency dominates and skipping 11 of 12 months avoids network I/O (see
+`docs/PERFORMANCE.md`).
+
+**Status:** prepared, not deployed — no AWS resources exist; verified against a
+**local-backend cloud-lake emulation**; **live S3 pending approval**. See
+`docs/CLOUD_ARCHITECTURE.md` and `docs/PARTITIONING.md` partner doc
+`docs/CLOUD_PUBLICATION.md`.

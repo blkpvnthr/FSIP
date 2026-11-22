@@ -105,6 +105,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Award-type scope: 'all' keeps every award in the archive (default); "
         "'contracts' keeps only A/B/C/D (matches the existing contracts-only lake).",
     )
+    ia.add_argument(
+        "--storage-backend",
+        default=None,
+        choices=["local", "s3"],
+        help="After local ingest, also publish to the cloud lake when 's3'.",
+    )
     _add_storage_opts(ia)
 
     # ---- Milestone 2: backfill ----
@@ -140,6 +146,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pf.add_argument("--agency", required=True, help=f"Agency key (known: {known}).")
     pf.add_argument("--fiscal-year", type=int, required=True, help="Federal fiscal year.")
     pf.add_argument("--data-dir", type=Path, default=None, help="Data-lake root override.")
+    pf.add_argument(
+        "--storage-backend",
+        default=None,
+        choices=["local", "s3"],
+        help="Profile the local dataset (default) or the published cloud dataset (s3).",
+    )
 
     # ---- Milestone 2: reconcile ----
     rc = sub.add_parser("reconcile", help="Reconcile a published dataset vs its manifest.")
@@ -178,6 +190,17 @@ def _build_parser() -> argparse.ArgumentParser:
     re_.add_argument("--fiscal-year", type=int, required=True, help="Federal fiscal year.")
     re_.add_argument("--tolerance-pct", type=float, default=1.0, help="Acceptable %% difference.")
     re_.add_argument("--data-dir", type=Path, default=None, help="Data-lake root override.")
+    re_.add_argument(
+        "--storage-backend",
+        default=None,
+        choices=["local", "s3"],
+        help="Reconcile against the local lake (default) or the cloud (s3).",
+    )
+
+    # ---- Milestone 3: cloud command group ----
+    from .cloud_cli import add_cloud_parser
+
+    add_cloud_parser(sub)
 
     return parser
 
@@ -196,6 +219,8 @@ def _settings_from_args(args: argparse.Namespace) -> Settings:
         overrides["parquet_compression"] = args.compression
     if getattr(args, "row_group_size", None) is not None:
         overrides["parquet_row_group_size"] = args.row_group_size
+    if getattr(args, "storage_backend", None) is not None:
+        overrides["storage_backend"] = args.storage_backend
     return replace(settings, **overrides) if overrides else settings
 
 
@@ -285,6 +310,17 @@ def _run_ingest_archive(args: argparse.Namespace, settings: Settings) -> int:
     # Non-zero exit if reconciliation failed or a conflict blocked publication.
     if r.status in {"reconciliation_failed", "conflict", "integrity_conflict"}:
         return 3
+    # Optional cloud publication after a successful local ingest.
+    if getattr(args, "storage_backend", None) == "s3" and r.status in {"published", "skipped"}:
+        from .cloud.publication import publish_local_dataset
+
+        pub = publish_local_dataset(settings, args.agency, args.fiscal_year)
+        print(
+            f"  cloud publish    : {pub.status} (snapshot {pub.snapshot_id[:12]}, "
+            f"catalog v{pub.catalog_version})"
+        )
+        if pub.status not in {"published", "skipped"}:
+            return 3
     return 0
 
 
@@ -353,6 +389,26 @@ def _run_list_datasets(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _run_profile(args: argparse.Namespace, settings: Settings) -> int:
+    if getattr(args, "storage_backend", None) == "s3":
+        # Profile the published CLOUD dataset via an independent readback.
+        from .cloud.catalog import read_current
+        from .cloud.verification import readback_totals
+        from .storage_backends import get_storage_backend
+
+        backend = get_storage_backend(settings)
+        cat, _ = read_current(backend)
+        entry = cat.datasets.get(f"{args.agency.lower()}_contracts_fy{args.fiscal_year}")
+        if entry is None:
+            print("ERROR: dataset not published to the cloud lake.", file=sys.stderr)
+            return 2
+        rb = readback_totals(backend, settings, entry.part_keys)
+        print(f"\nCloud profile '{entry.dataset_id}' (active snapshot {entry.snapshot_id[:12]}):")
+        print(f"  transactions    : {rb.transaction_count}")
+        print(f"  distinct keys   : {rb.distinct_keys}")
+        print(f"  net obligation  : {rb.net_obligation}")
+        print(f"  partitions      : {len(rb.partition_counts)}")
+        return 0
+
     from .profiling import profile_dataset
 
     result = profile_dataset(args.agency, args.fiscal_year, settings)
@@ -370,6 +426,18 @@ def _run_profile(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _run_reconcile(args: argparse.Namespace, settings: Settings) -> int:
+    if getattr(args, "storage_backend", None) == "s3":
+        from .cloud.reconciliation import reconcile_dataset_cloud
+
+        rec = reconcile_dataset_cloud(settings, args.agency, args.fiscal_year)
+        print(f"\nCloud reconciliation for {args.agency} FY{args.fiscal_year}:")
+        for c in rec.checks:
+            print(
+                f"  [{'PASS' if c['ok'] else 'FAIL'}] {c['name']}: {c['expected']} vs {c['actual']}"
+            )
+        print("RESULT:", "PASSED" if rec.passed else "FAILED")
+        return 0 if rec.passed else 3
+
     from .reconciliation import reconcile_published
 
     result = reconcile_published(args.agency, args.fiscal_year, settings)
@@ -476,6 +544,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "agencies":
             return _run_agencies()
+        if args.command == "cloud":
+            from .cloud_cli import run_cloud
+
+            return run_cloud(args, settings)
         handler = _HANDLERS.get(args.command)
         if handler is not None:
             return handler(args, settings)

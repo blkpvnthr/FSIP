@@ -158,3 +158,46 @@ def nasa_fy2026_archive(make_archive: Callable[..., Path]) -> Path:
         },
         name="nasa_fy2026.zip",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Milestone 3: cloud fixtures
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def published_local(settings: Settings, nasa_fy2026_archive: Path) -> Settings:
+    """Settings with a small NASA FY2026 dataset ingested + published locally.
+
+    The controlled fixture publishes 4 valid rows across 4 fiscal months with a
+    known net obligation of 250.00 — the basis for cloud publication/migration tests.
+    """
+    from ingestion.archive import ingest_archive
+
+    ingest_archive(nasa_fy2026_archive, "NASA", 2026, settings)
+    return settings
+
+
+@pytest.fixture
+def local_cloud_backend(settings: Settings):
+    """A local storage backend emulating the cloud object lake (separate root)."""
+    from ingestion.storage_backends import get_storage_backend
+
+    return get_storage_backend(settings, local_root=settings.cloud_local_root)
+
+
+@pytest.fixture
+def s3_backend(settings: Settings):
+    """A moto-mocked S3 backend (offline). Yields a configured S3StorageBackend."""
+    import boto3
+    from ingestion.storage_backends.s3 import S3StorageBackend
+    from moto import mock_aws
+
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="fsip-test-bucket")
+        s3_settings = replace(
+            settings,
+            storage_backend="s3",
+            s3_bucket="fsip-test-bucket",
+            s3_prefix="dev",
+            aws_region="us-east-1",
+        )
+        yield S3StorageBackend(s3_settings)

@@ -256,6 +256,127 @@ ingested end-to-end in ~113 s (~11,500 transactions/sec) under bounded-memory
 streaming. Measured benchmarks (throughput, peak memory, and partition-pruning
 effectiveness at scale) are in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
+## Milestone 3 — AWS S3 Cloud Data Lake Architecture
+
+Milestone 3 adds a reusable **storage abstraction** (local filesystem / S3), a
+manifest-based **cloud publication protocol** with an optimistic-concurrency
+catalog pointer, Terraform infrastructure-as-code, and cloud financial
+reconciliation — while keeping the local lake the default and fully operational.
+
+```mermaid
+flowchart TD
+    subgraph SOURCE["Federal Data Sources"]
+        A["USAspending Bulk Download API"]
+        B["Historical Award Data Archives"]
+    end
+
+    A --> C
+    B --> C
+
+    C["<b>Python Ingestion Engine</b><br/>Extraction · Schema validation · Deduplication"]
+
+    C --> D["<b>Storage Abstraction Layer</b><br/>Local filesystem / Boto3"]
+
+    D --> L["<b>Local Data Lake</b><br/>Development · Testing · Offline analytics"]
+
+    D --> R
+
+    subgraph AWS["AWS S3 Cloud Data Lake"]
+        R["<b>Raw Zone</b><br/>Immutable ZIP archives · SHA-256"]
+        S["<b>Staging Zone</b><br/>Run-isolated candidate datasets"]
+        V["<b>Validation and Integrity Gate</b><br/>Financial reconciliation · Transaction uniqueness"]
+        Q["<b>Quarantine Zone</b><br/>Rejected records · Failure evidence"]
+        P["<b>Curated Zone</b><br/>Versioned Hive-partitioned Parquet"]
+        M["<b>Control Zone</b><br/>Manifests · Published snapshot pointer"]
+        G["<b>Governance Controls</b><br/>IAM · Encryption · Versioning · Lifecycle"]
+
+        R --> S
+        S --> V
+        V -->|Rejected| Q
+        V -->|Verified| P
+        P --> M
+
+        G -.-> R
+        G -.-> S
+        G -.-> P
+        G -.-> M
+    end
+
+    L --> E
+    M --> E
+
+    E["<b>DuckDB Analytical Engine</b><br/>SQL · Profiling · Partition pruning · Reconciliation"]
+
+    E --> O["<b>Operational Reports</b><br/>Data quality · Performance · Cost"]
+
+    M -.-> F["<b>Future Snowflake Warehouse</b><br/>Milestone 4"]
+
+    classDef source fill:#e2e8f0,stroke:#64748b,color:#0f172a
+    classDef engine fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef storage fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef control fill:#fef3c7,stroke:#ca8a04,color:#422006
+    classDef quarantine fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef analytics fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+    classDef future fill:#f1f5f9,stroke:#94a3b8,color:#475569,stroke-dasharray:5 3
+
+    class A,B source
+    class C,D,V engine
+    class L,R,S,P storage
+    class M,G control
+    class Q quarantine
+    class E,O analytics
+    class F future
+
+    style AWS fill:#fffbeb,stroke:#d97706,color:#78350f
+    style SOURCE fill:#f8fafc,stroke:#64748b,color:#0f172a
+```
+
+### Milestone 3 status — implementation complete; live cloud acceptance pending
+
+| Capability | Status |
+|---|---|
+| Storage abstraction (`LocalStorageBackend`, `S3StorageBackend` via Boto3) | **Implemented + verified** (local + moto S3) |
+| Manifest-based publication: staging → verify → reconcile → uniqueness → snapshot → catalog CAS | **Implemented + verified** (local-backend emulation) |
+| Dataset-wide transaction uniqueness (not bypassable by `--force`) | **Implemented + verified** |
+| Cloud financial reconciliation (local→snapshot→catalog→readback, decimal-exact) | **Implemented + verified** |
+| Snapshot rollback + catalog pointer-conflict handling | **Implemented + verified** |
+| DuckDB S3 analytics (httpfs, credential chain) + 12 preserved queries | **Implemented** (S3 path code; verified via local emulation) |
+| Terraform IaC (S3 + IAM + monitoring modules, dev env) | **Prepared, NOT deployed** (authoring only) |
+| Deployed AWS infrastructure | **None** — nothing has been provisioned |
+| Datasets migrated to **live** S3 | **None** — the full 7-dataset migration was reproduced against a **local-backend cloud-lake emulation** (reconciles to the exact baseline); live migration awaits Phase B/C approval |
+
+Both historical ZIP archives and API-generated archives enter the same Python
+ingestion engine; the storage abstraction then targets the local lake (default) or
+S3. Original source files stay immutable (content-addressed, SHA-256). Candidate
+datasets are staged, then reconciled and uniqueness-checked **before** the catalog
+pointer is advanced with a conditional write; a failed publication leaves the prior
+catalog active and partial objects invisible. The detailed lifecycle is in
+[`docs/CLOUD_PUBLICATION.md`](docs/CLOUD_PUBLICATION.md); setup, security, costs, and
+migration are in [`docs/AWS_SETUP.md`](docs/AWS_SETUP.md),
+[`docs/CLOUD_SECURITY.md`](docs/CLOUD_SECURITY.md),
+[`docs/CLOUD_COSTS.md`](docs/CLOUD_COSTS.md), and
+[`docs/CLOUD_MIGRATION.md`](docs/CLOUD_MIGRATION.md).
+
+### Milestone 3 commands
+
+```bash
+# Validate cloud config; inventory + cost estimate (offline)
+fsdw cloud check
+fsdw cloud inventory
+fsdw cloud estimate-cost
+
+# Publish/migrate (local-backend by default; set FSDW_STORAGE_BACKEND=s3 for S3)
+fsdw cloud plan-sync --agency NASA --fiscal-year 2026      # dry run
+fsdw cloud sync --agency NASA --fiscal-year 2026           # pilot
+fsdw cloud sync --all                                      # full migration
+fsdw cloud verify --agency NASA --fiscal-year 2026
+fsdw cloud audit-integrity
+fsdw cloud reconcile
+fsdw cloud list-snapshots
+fsdw cloud rollback --to-version 1
+fsdw cloud benchmark
+```
+
 ## Requirements and quickstart
 
 Python **3.12+**. The public API requires no credentials; this milestone provisions no paid cloud infrastructure. Run from the cloned repository root.
@@ -592,7 +713,7 @@ Federal-Spending-Data/
 - [x] Milestone 1: API ingestion, validation, manifests, Parquet and local reconciliation
 - [x] Milestone 2: Full archive ingestion, historical profiling and partitioning
 - [x] Milestone 2.1: Acceptance & hardening — manual archives, NASA FY2022–2026, DOE & GSA FY2026 (1.41M transactions), dataset-wide integrity, external reconciliation
-- [ ] Milestone 3: AWS S3 data lake
+- [x] Milestone 3: AWS S3 cloud data lake (storage abstraction, manifest publication, Terraform IaC) — _implementation complete; live cloud deployment/migration pending approval_
 - [ ] Milestone 4: Snowflake warehouse
 - [ ] Milestone 5: dbt dimensional models and marts
 - [ ] Milestone 6: Airflow orchestration and backfills

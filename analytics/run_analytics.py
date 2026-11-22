@@ -46,6 +46,33 @@ def build_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def build_cloud_connection(data_dir: Path) -> duckdb.DuckDBPyConnection:
+    """Open a DuckDB connection with ``tx`` wired to the ACTIVE cloud snapshots.
+
+    Resolves every active dataset's exact part-file keys through the published
+    catalog (never globbing historical snapshots) and reads them via httpfs when the
+    backend is S3. Requires the ingestion package on the path.
+    """
+    from dataclasses import replace
+
+    from ingestion.cloud import catalog as catalog_mod
+    from ingestion.cloud import verification
+    from ingestion.config import Settings
+    from ingestion.storage_backends import get_storage_backend
+
+    settings = replace(Settings.from_env(), data_dir=data_dir)
+    backend = get_storage_backend(settings)
+    cat, _ = catalog_mod.read_current(backend)
+    part_keys = [k for ds in cat.datasets.values() for k in ds.part_keys]
+    if not part_keys:
+        raise SystemExit("No active cloud datasets in the catalog; run `fsdw cloud sync` first.")
+    con = verification.duckdb_connection(backend, settings)
+    con.execute(
+        f"CREATE VIEW tx AS SELECT * FROM {verification._file_list_sql(backend, part_keys)}"
+    )
+    return con
+
+
 def discover_sql_files() -> list[Path]:
     """Return the analytics .sql files in deterministic (sorted) order."""
     return sorted(SQL_DIR.glob("*.sql"))
@@ -86,13 +113,24 @@ def main() -> int:
         default="analytics/reports",
         help="Directory for the Markdown report (default: analytics/reports)",
     )
+    parser.add_argument(
+        "--storage-backend",
+        default="local-files",
+        choices=["local-files", "cloud"],
+        help="'local-files' globs data/parquet (default); 'cloud' reads the active "
+        "catalog snapshots via the configured storage backend (local-lake or S3).",
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    con = build_connection(data_dir)
+    con = (
+        build_cloud_connection(data_dir)
+        if args.storage_backend == "cloud"
+        else build_connection(data_dir)
+    )
     sql_files = discover_sql_files()
     if not sql_files:
         print(f"No .sql files found under {SQL_DIR}", file=sys.stderr)

@@ -421,3 +421,26 @@ raises the cap. See `docs/RUNBOOK.md`.
 - Milestone 2.1 only **detects and reports** cross-dataset conflicts. The
   correction/deletion lifecycle (superseding versions, applying deltas) is
   **deferred to the CDC milestone**.
+
+---
+
+# Milestone 3 — cloud (status)
+
+Milestone 3 lifts the published lake onto an **AWS S3 object-storage
+architecture** behind a pluggable `StorageBackend` abstraction
+(`ingestion/storage_backends/`; local is the default, `s3` selected **only** by
+`FSDW_STORAGE_BACKEND=s3`). Because S3 has **no atomic directory rename**, the
+Milestone-2 atomic-rename publish is replaced by a content-addressed,
+snapshot-isolated, **catalog-pointer** protocol whose single commit point is a
+conditional compare-and-swap on `control/current.json`.
+
+**Status:** Terraform is **prepared but not deployed** — **no AWS resources
+exist**, and `terraform validate` was not run (Terraform not installed locally).
+The full 7-dataset migration was reproduced against a **local-backend cloud-lake
+emulation** (not live S3) and reconciles to the exact Milestone-2.1 baseline
+(1,413,894 tx, 0 duplicates, $162,127,569,604.93). **Live S3 acceptance is pending
+approval (Phase B/C).**
+
+See `docs/CLOUD_ARCHITECTURE.md`, `docs/CLOUD_PUBLICATION.md`,
+`docs/CLOUD_SECURITY.md`, `docs/CLOUD_MIGRATION.md`, `docs/CLOUD_COSTS.md`,
+`docs/CLOUD_RUNBOOK.md`, and `docs/AWS_SETUP.md`.
