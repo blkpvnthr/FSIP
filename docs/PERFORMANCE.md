@@ -92,10 +92,57 @@ months means skipping gigabytes of I/O, and partitioning becomes a decisive
 wall-time win. The partition design is therefore a **volume-forward** choice:
 correct and pruning-effective now, wall-time-advantageous at production scale.
 
+## Milestone 2.1 — scale results (GSA FY2026, 1.3M rows)
+
+Milestone 2.1 added a genuine scale test: **GSA FY2026**, a multi-member manual
+Award Data Archive (**2 CSV members, 3.2 GB uncompressed**) that publishes
+**1,300,826 contract transactions**. The published lake now holds **1,413,894
+transactions across 7 datasets — above the 1M scale target**, so no scale
+limitation applies.
+
+### Ingestion at scale (measured, single subprocess run)
+
+| Metric | GSA FY2026 | NASA FY2026 (ref) |
+|--------|-----------:|------------------:|
+| Rows ingested | ~1.3–1.44M | 17,603 |
+| Wall time | **~104–113 s** | 1.12 s |
+| Throughput | ≈ **13,000–13,800 tx/s** | ≈ 15,756 tx/s |
+| Peak process RSS | ≈ **2.4 GB** | ≈ 452 MB |
+| Uncompressed source | 3.2 GB | 48.9 MB |
+
+Throughput holds (~13k tx/s) from ~17k to ~1.4M rows. Peak RSS at scale (~2.4 GB)
+reflects the per-partition streaming `ParquetWriter`s plus in-flight batches; it is
+bounded by `batch_size` × partition count, **not** by the 3.2 GB archive size —
+the archive is streamed, never fully buffered. Process time dominates (101.6 s);
+reconcile (0.08 s) and the atomic publish (0.0002 s) stay negligible at scale.
+
+### Partition pruning at scale
+
+| Metric | GSA FY2026 |
+|--------|-----------:|
+| Files scanned (single month) | **1 of 12** |
+| Rows scanned | **122,838 of 1,300,826** |
+| Rows skipped | **90.6%** |
+| Partitioned vs unpartitioned single-month query (min) | 5.2 ms vs 4.7 ms (**0.91x**) |
+
+### Honest interpretation at scale
+
+Even at 1.3M rows, the single-month query is ~**0.91x** (marginally slower)
+partitioned-vs-unpartitioned on **local SSD**: DuckDB's row-group statistics let it
+scan one unpartitioned Parquet file so fast that the 12-file open overhead still
+cancels the pruning win. Pruning nonetheless **skips 90.6% of rows** — a real I/O
+reduction that becomes a decisive wall-time win on **object storage (S3, Milestone
+3)** where per-object latency dominates and skipping 11 of 12 months avoids
+gigabytes of network I/O. We report the measured parity honestly and do **not**
+claim a local-disk speedup that did not occur.
+
 ## Limitations
 
-- Benchmarks are for **NASA FY2026** only, on the single environment above.
-- The partitioned-vs-unpartitioned wall-time result is **scale-dependent**; do not
-  generalize the 0.52x figure to larger datasets.
-- Query benchmarks reflect DuckDB 1.5.6 behavior over local Parquet; a different
-  engine or object store would have different fixed-overhead characteristics.
+- Benchmarks were run on the single environment above (macOS arm64, local SSD).
+- The partitioned-vs-unpartitioned wall-time parity (0.52x–0.91x) is
+  **scale- and storage-dependent**; do not generalize it. The pruning *data-skip*
+  (~90%) is the durable, measured benefit and is expected to convert to wall-time
+  gains on object storage.
+- GSA required raising `FSDW_MAX_EXTRACT_BYTES` to 8 GiB (its 3.2 GB uncompressed
+  exceeds the 2 GiB default safety cap — the cap correctly rejected it first).
+- DoD was **not** benchmarked (not ingested; large, needs approval).

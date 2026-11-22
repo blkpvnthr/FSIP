@@ -320,7 +320,11 @@ def _main(argv: list[str] | None = None) -> int:
         from .archive import ingest_archive
 
         zip_path, agency, fy, datadir = args.run_ingest
-        settings = Settings(data_dir=Path(datadir))
+        # Respect env (e.g. FSDW_MAX_EXTRACT_BYTES for large agencies like GSA),
+        # overriding only the data dir for the isolated benchmark run.
+        from dataclasses import replace as _replace
+
+        settings = _replace(Settings.from_env(load_dotenv_file=False), data_dir=Path(datadir))
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
         r = ingest_archive(Path(zip_path), agency, int(fy), settings, timings=timings, force=True)

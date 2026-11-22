@@ -54,6 +54,21 @@ Stored as fixed-point decimals — never floats. **Negative values are valid**
 | `awarding_sub_agency_code` | string | Sub-agency code. |
 | `funding_agency_code` | string | Top-tier funding agency code. |
 
+## Award-type scope (`award_type_code`)
+
+| Column | Arrow type | Notes |
+|--------|-----------|-------|
+| `award_type_code` | string | **Award-type scope selector** (Milestone 2.1). Values **A/B/C/D** are definitive contracts (Definitive Contract / Purchase Order / Delivery Order / BPA Call). **IDVs carry a blank `award_type_code`** — their `idv_type_code` is populated instead. |
+| `idv_type_code` | string | Populated **only** for IDVs (Indefinite Delivery Vehicles); blank for A/B/C/D contracts. |
+
+The published lake is **contracts-only**: the Milestone-2.1 scope filter in
+`ingestion/archive.py` keeps rows whose `award_type_code` is in `{A, B, C, D}` and
+counts every other row (notably IDVs, which have a blank `award_type_code`) as
+`filtered` — excluded from the dataset but never dropped from the accounting. This
+is how a full manual "Contracts Full" archive (contracts **plus** IDVs) is narrowed
+to the contracts-only scope that matches the rest of the lake. The applied set is
+recorded in the manifest under `scope_filter.award_type_codes`.
+
 ## Pipeline-added / operational fields
 
 These appear only in the **quarantine** output, not the Parquet:
@@ -147,7 +162,7 @@ The field names below are the **actual** top-level keys emitted by
 | `ingestion_timestamp_utc` | When the dataset was ingested. |
 | `agency` | Nested object: `{key, name, toptier_code}` for the awarding agency. |
 | `fiscal_year` | Federal fiscal year (INT). |
-| `scope_filter` | `{date_type, fy_start, fy_end}` — the action-date window applied. |
+| `scope_filter` | `{date_type, fy_start, fy_end, award_type_codes}` — the action-date window applied, plus (Milestone 2.1) `award_type_codes`: the award-type scope applied (e.g. `["A","B","C","D"]` for contracts-only, or `null`/absent for full scope). |
 | `source_archive` | `{original_file_name, stored_path, sha256, size_bytes, uncompressed_bytes}` (immutability anchor). |
 | `source_csv_members` | List of `{original_file_name, sha256, size_bytes}`, one per extracted CSV. |
 | `schema_fingerprint` | SHA-256 of the ordered 297-column header (see `docs/SCHEMA_EVOLUTION.md`). |
@@ -157,7 +172,7 @@ The field names below are the **actual** top-level keys emitted by
 | `partition_count` / `parquet_file_count` | Number of partitions and part-files published. |
 | `reconciliation` | `{passed, checks[...]}` — the decimal-exact source→target checks (publication gate). |
 | `content_signature` | `{valid_rows, net_obligation, distinct_valid_tx, schema_fingerprint}` — used for idempotency / conflict detection. |
-| `published` / `published_path` / `status` | Whether/where the dataset was published and its status (`published` / `conflict` / `reconciliation_failed`). |
+| `published` / `published_path` / `status` | Whether/where the dataset was published and its status (`published` / `conflict` / `reconciliation_failed` / `integrity_conflict`). The `integrity_conflict` status (Milestone 2.1) is set when the pre-publish cross-dataset integrity gate finds the candidate's transaction keys already present in another published dataset — publication is blocked unless `--force`. |
 | `quarantine_path` | Path to the quarantine CSV (or null when none). |
 | `content_signature` | (`valid_rows`, `net_obligation`, `distinct_tx`, `schema_fingerprint`) — compared on re-run for idempotency / conflict detection. |
 | `reconciliation` | Result of the staging gate: accounting-identity and source-to-target (per-partition) checks, decimal-exact. |

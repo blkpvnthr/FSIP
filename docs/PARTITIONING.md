@@ -123,3 +123,32 @@ Pruning provably reduces the data scanned. **Note:** at this small scale (~17k
 rows, ~6.5 MB) the per-file open overhead means partitioning does **not** improve
 single-query *wall time* — see `docs/PERFORMANCE.md` for the honest numbers and
 why the benefit grows with data volume.
+
+## Scale note (Milestone 2.1)
+
+Milestone 2.1 added datasets that exercise partitioning at a much larger scale and
+across multiple agencies and fiscal years. The lake now holds **7 published
+datasets** (NASA FY2022–FY2026, DOE FY2026, GSA FY2026), each still partitioned
+into **12 fiscal-month partitions**.
+
+- **GSA FY2026 is the large-scale case: ~1.3M published rows** (1,300,826) from a
+  **multi-member** manual archive — two CSV files
+  (`FY2026_047_Contracts_Full_20261108_1.csv` and `_2.csv`) streamed into the same
+  partitioned writer. This is the first dataset large enough for the
+  `target_partition_file_rows` roll threshold to be relevant per high-volume
+  fiscal month.
+- The GSA archive is **3.2 GB uncompressed**, which **exceeded the default 2 GiB
+  `max_extract_bytes` cap** and was correctly rejected by the zip-bomb / size
+  guard; ingestion required raising **`FSDW_MAX_EXTRACT_BYTES`** (e.g. to 8 GiB).
+  See `docs/RUNBOOK.md`.
+
+### Partition isolation across agencies and years
+
+Because the top-level partition key is `awarding_agency` and the second level is
+`fiscal_year`, every `(agency, FY)` dataset occupies a **disjoint subtree** of
+`data/parquet/contracts/`. Datasets are therefore **physically independent**:
+publishing, re-publishing, or force-overwriting one `(agency, FY)` touches only its
+own `fiscal_year` subtree and never another dataset's files. This isolation is what
+lets the atomic replace-not-append publish, the per-dataset reconciliation, and the
+Milestone-2.1 cross-dataset integrity audit all operate without datasets
+interfering with one another on disk.
