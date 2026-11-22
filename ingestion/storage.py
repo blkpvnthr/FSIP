@@ -101,9 +101,7 @@ def rows_to_table(rows: list[dict[str, str]], header: list[str]) -> pa.Table:
         elif col in TIMESTAMP_COLUMNS:
             arrays.append(pa.array(_timestamp_column(rows, col), type=_TIMESTAMP_TYPE))
         else:
-            arrays.append(
-                pa.array([row.get(col) for row in rows], type=pa.string())
-            )
+            arrays.append(pa.array([row.get(col) for row in rows], type=pa.string()))
     return pa.Table.from_arrays(arrays, schema=schema)
 
 
@@ -121,7 +119,12 @@ def write_parquet(rows: list[dict[str, str]], header: list[str], dest_path: Path
     tmp_path.replace(dest_path)
     log.info(
         "storage.parquet_written",
-        extra={"context": {"path": str(dest_path), "rows": table.num_rows,
-                           "columns": table.num_columns}},
+        extra={
+            "context": {
+                "path": str(dest_path),
+                "rows": table.num_rows,
+                "columns": table.num_columns,
+            }
+        },
     )
     return table.num_rows

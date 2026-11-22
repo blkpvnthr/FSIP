@@ -7,15 +7,17 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-
 from ingestion.storage import build_arrow_schema, write_parquet
 from ingestion.validate import validate_file
 
 
 def test_schema_types_are_explicit():
     header = [
-        "contract_transaction_unique_key", "federal_action_obligation",
-        "action_date", "last_modified_date", "recipient_name",
+        "contract_transaction_unique_key",
+        "federal_action_obligation",
+        "action_date",
+        "last_modified_date",
+        "recipient_name",
     ]
     schema = build_arrow_schema(header)
     types = {f.name: f.type for f in schema}
@@ -47,9 +49,7 @@ def test_write_parquet_roundtrip_preserves_decimals_and_negatives(
     assert total == Decimal("1250.25")
 
 
-def test_unparseable_ancillary_date_becomes_null_not_error(
-    sample_csv_path: Path, tmp_path: Path
-):
+def test_unparseable_ancillary_date_becomes_null_not_error(sample_csv_path: Path, tmp_path: Path):
     result = validate_file(sample_csv_path)
     out = tmp_path / "out.parquet"
     write_parquet(result.valid_rows, result.header, out)

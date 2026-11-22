@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
 from ingestion.config import Settings
 
 FIXTURES = Path(__file__).parent / "fixtures"

@@ -44,6 +44,7 @@ AGENCIES: dict[str, dict[str, str]] = {
 # Award-type groups -> USAspending prime_award_type codes
 # --------------------------------------------------------------------------- #
 
+
 class AwardTypeGroup(str, Enum):
     """Logical groupings exposed on the CLI, mapped to API prime-award codes."""
 
@@ -59,7 +60,15 @@ AWARD_TYPE_CODES: dict[AwardTypeGroup, list[str]] = {
     AwardTypeGroup.CONTRACTS: ["A", "B", "C", "D"],
     AwardTypeGroup.IDVS: ["IDV_A", "IDV_B", "IDV_C", "IDV_D", "IDV_E"],
     AwardTypeGroup.CONTRACTS_AND_IDVS: [
-        "A", "B", "C", "D", "IDV_A", "IDV_B", "IDV_C", "IDV_D", "IDV_E",
+        "A",
+        "B",
+        "C",
+        "D",
+        "IDV_A",
+        "IDV_B",
+        "IDV_C",
+        "IDV_D",
+        "IDV_E",
     ],
 }
 
@@ -94,14 +103,16 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 )
 
 # Financial columns -> decimal128(23, 2). Preserves sign; never parsed as float.
-DECIMAL_COLUMNS: frozenset[str] = frozenset({
-    OBLIGATION_COLUMN,
-    "total_dollars_obligated",
-    "current_total_value_of_award",
-    "potential_total_value_of_award",
-    "base_and_exercised_options_value",
-    "base_and_all_options_value",
-})
+DECIMAL_COLUMNS: frozenset[str] = frozenset(
+    {
+        OBLIGATION_COLUMN,
+        "total_dollars_obligated",
+        "current_total_value_of_award",
+        "potential_total_value_of_award",
+        "base_and_exercised_options_value",
+        "base_and_all_options_value",
+    }
+)
 
 # Columns that should be typed as real dates (date32) when present.
 #
@@ -112,18 +123,22 @@ DECIMAL_COLUMNS: frozenset[str] = frozenset({
 # type it as a timestamp, not a date, to avoid silently truncating the time —
 # and because ``last_modified_date`` is the source modification field later
 # milestones will use for incremental/CDC loads.
-DATE_COLUMNS: frozenset[str] = frozenset({
-    ACTION_DATE_COLUMN,
-    "period_of_performance_start_date",
-    "period_of_performance_current_end_date",
-    "period_of_performance_potential_end_date",
-    "solicitation_date",
-})
+DATE_COLUMNS: frozenset[str] = frozenset(
+    {
+        ACTION_DATE_COLUMN,
+        "period_of_performance_start_date",
+        "period_of_performance_current_end_date",
+        "period_of_performance_potential_end_date",
+        "solicitation_date",
+    }
+)
 
 # Columns that should be typed as timezone-aware timestamps (timestamp[us, UTC]).
-TIMESTAMP_COLUMNS: frozenset[str] = frozenset({
-    LAST_MODIFIED_COLUMN,
-})
+TIMESTAMP_COLUMNS: frozenset[str] = frozenset(
+    {
+        LAST_MODIFIED_COLUMN,
+    }
+)
 
 DECIMAL_PRECISION = 23
 DECIMAL_SCALE = 2
@@ -144,25 +159,24 @@ def schema_fingerprint(header: list[str]) -> str:
 # Extraction request
 # --------------------------------------------------------------------------- #
 
+
 @dataclass(frozen=True)
 class ExtractRequest:
     """A fully-resolved extraction request (what/when/how to pull)."""
 
     agency: str
     start_date: str  # YYYY-MM-DD
-    end_date: str    # YYYY-MM-DD
+    end_date: str  # YYYY-MM-DD
     award_type_group: AwardTypeGroup = AwardTypeGroup.CONTRACTS
     date_type: str = "action_date"  # or "last_modified_date"
-    agency_type: str = "awarding"   # "awarding" or "funding"
+    agency_type: str = "awarding"  # "awarding" or "funding"
     file_format: str = "csv"
 
     @property
     def agency_meta(self) -> dict[str, str]:
         key = self.agency.upper()
         if key not in AGENCIES:
-            raise KeyError(
-                f"Unknown agency '{self.agency}'. Known: {sorted(AGENCIES)}"
-            )
+            raise KeyError(f"Unknown agency '{self.agency}'. Known: {sorted(AGENCIES)}")
         return AGENCIES[key]
 
     @property

@@ -6,7 +6,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from ingestion.exceptions import SchemaContractError
 from ingestion.validate import (
     parse_date,
@@ -73,9 +72,7 @@ def test_soft_warning_keeps_row(sample_csv_path: Path):
     assert any("unparseable_date" in w for w in result.warnings)
 
 
-def test_write_quarantine_preserves_rows_and_appends_reasons(
-    sample_csv_path: Path, tmp_path: Path
-):
+def test_write_quarantine_preserves_rows_and_appends_reasons(sample_csv_path: Path, tmp_path: Path):
     result = validate_file(sample_csv_path)
     out = tmp_path / "q.csv"
     n = write_quarantine(result, out)

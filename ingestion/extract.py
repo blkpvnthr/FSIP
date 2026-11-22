@@ -52,9 +52,7 @@ class ExtractionResult:
 def _find_single_csv(paths: list[Path]) -> Path:
     csvs = [p for p in paths if p.suffix.lower() == ".csv"]
     if len(csvs) != 1:
-        raise ValueError(
-            f"Expected exactly one CSV in archive, found {len(csvs)}: {csvs}"
-        )
+        raise ValueError(f"Expected exactly one CSV in archive, found {len(csvs)}: {csvs}")
     return csvs[0]
 
 
@@ -82,9 +80,7 @@ def run_extraction(
     # Idempotency: a completed extraction is not repeated unless forced.
     if parquet_path.exists() and manifest_path.exists() and not force:
         log.info("extract.skip_existing", extra={"context": {"slug": slug}})
-        return _result_from_existing(
-            request, settings, parquet_path, manifest_path, raw_subdir
-        )
+        return _result_from_existing(request, settings, parquet_path, manifest_path, raw_subdir)
 
     client = client or UsaspendingClient(settings)
 

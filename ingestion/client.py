@@ -107,42 +107,42 @@ class UsaspendingClient:
                 last_exc = exc
                 log.warning(
                     "http.transient_exception",
-                    extra={"context": {
-                        "url": url, "attempt": attempt, "max": attempts,
-                        "error": type(exc).__name__,
-                    }},
+                    extra={
+                        "context": {
+                            "url": url,
+                            "attempt": attempt,
+                            "max": attempts,
+                            "error": type(exc).__name__,
+                        }
+                    },
                 )
                 if attempt < attempts:
                     self._sleep(self._backoff_seconds(attempt))
                 continue
 
             if response.status_code in _RETRYABLE_STATUS:
-                last_exc = TransientAPIError(
-                    f"{response.status_code} from {url}"
-                )
+                last_exc = TransientAPIError(f"{response.status_code} from {url}")
                 log.warning(
                     "http.transient_status",
-                    extra={"context": {
-                        "url": url, "status": response.status_code,
-                        "attempt": attempt, "max": attempts,
-                    }},
+                    extra={
+                        "context": {
+                            "url": url,
+                            "status": response.status_code,
+                            "attempt": attempt,
+                            "max": attempts,
+                        }
+                    },
                 )
                 if attempt < attempts:
-                    self._sleep(
-                        self._backoff_seconds(attempt, self._parse_retry_after(response))
-                    )
+                    self._sleep(self._backoff_seconds(attempt, self._parse_retry_after(response)))
                 continue
 
             if 400 <= response.status_code < 500:
-                raise PermanentAPIError(
-                    f"{response.status_code} from {url}: {response.text[:500]}"
-                )
+                raise PermanentAPIError(f"{response.status_code} from {url}: {response.text[:500]}")
 
             return response
 
-        raise TransientAPIError(
-            f"Exhausted {attempts} attempt(s) for {method} {url}"
-        ) from last_exc
+        raise TransientAPIError(f"Exhausted {attempts} attempt(s) for {method} {url}") from last_exc
 
     # ------------------------------------------------------------------ #
     # Bulk-download job lifecycle
@@ -184,9 +184,7 @@ class UsaspendingClient:
             if status == "finished":
                 return status_body
             if status == "failed":
-                raise DownloadJobError(
-                    f"Bulk-download job failed: {status_body.get('message')}"
-                )
+                raise DownloadJobError(f"Bulk-download job failed: {status_body.get('message')}")
             if self._monotonic() >= deadline:
                 raise DownloadJobTimeout(
                     f"Job did not finish within "
@@ -223,9 +221,7 @@ class UsaspendingClient:
                     if response.status_code in _RETRYABLE_STATUS:
                         raise TransientAPIError(f"{response.status_code} from {file_url}")
                     if 400 <= response.status_code < 500:
-                        raise PermanentAPIError(
-                            f"{response.status_code} from {file_url}"
-                        )
+                        raise PermanentAPIError(f"{response.status_code} from {file_url}")
                     response.raise_for_status()
                     with open(dest_path, "wb") as fh:
                         for chunk in response.iter_content(chunk_size=_CHUNK_SIZE):

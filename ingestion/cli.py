@@ -41,7 +41,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "extract", help="Extract prime award transactions for an agency + date range."
     )
     extract.add_argument(
-        "--agency", required=True,
+        "--agency",
+        required=True,
         help=f"Agency key (known: {', '.join(sorted(AGENCIES))}).",
     )
     extract.add_argument("--start", required=True, help="Start date (YYYY-MM-DD).")
@@ -53,20 +54,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Award-type group to request (default: contracts).",
     )
     extract.add_argument(
-        "--date-type", default="action_date",
+        "--date-type",
+        default="action_date",
         choices=["action_date", "last_modified_date"],
         help="Which date field the date range filters on.",
     )
     extract.add_argument(
-        "--agency-type", default="awarding", choices=["awarding", "funding"],
+        "--agency-type",
+        default="awarding",
+        choices=["awarding", "funding"],
         help="Filter on the awarding or funding agency (default: awarding).",
     )
     extract.add_argument(
-        "--data-dir", type=Path, default=None,
+        "--data-dir",
+        type=Path,
+        default=None,
         help="Override the data-lake root directory (default: from env / 'data').",
     )
     extract.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Re-run even if outputs already exist for this request.",
     )
 

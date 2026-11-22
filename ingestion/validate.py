@@ -120,9 +120,7 @@ def verify_contract(header: list[str]) -> None:
     """Raise :class:`SchemaContractError` if any required column is absent."""
     missing = [c for c in REQUIRED_COLUMNS if c not in header]
     if missing:
-        raise SchemaContractError(
-            f"Source is missing required column(s): {missing}"
-        )
+        raise SchemaContractError(f"Source is missing required column(s): {missing}")
 
 
 def _validate_row(
@@ -206,12 +204,14 @@ def validate_file(csv_path: Path) -> ValidationResult:
 
     log.info(
         "validate.done",
-        extra={"context": {
-            "total": result.total_rows,
-            "valid": result.valid_count,
-            "quarantined": result.quarantined_count,
-            "warnings": len(result.warnings),
-        }},
+        extra={
+            "context": {
+                "total": result.total_rows,
+                "valid": result.valid_count,
+                "quarantined": result.quarantined_count,
+                "warnings": len(result.warnings),
+            }
+        },
     )
     return result
 
